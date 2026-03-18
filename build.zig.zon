@@ -1,0 +1,7 @@
+.{
+    .name = .bloodrift_engine,
+    .fingerprint = 0x8d27edc972cea472,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.15.0",
+    .paths = .{""},
+}
