@@ -519,6 +519,281 @@ test "Mat4f: translation moves a point" {
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), result.z, 0.001);
 }
 
+test "FVec3: neg" {
+    const a = FVec3.fromInts(1, -2, 3);
+    const n = FVec3.neg(a);
+    try std.testing.expect(FVec3.fromInts(-1, 2, -3).eql(n));
+    // neg(zero) == zero
+    try std.testing.expect(FVec3.zero.eql(FVec3.neg(FVec3.zero)));
+    // neg(neg(v)) == v
+    try std.testing.expect(a.eql(FVec3.neg(FVec3.neg(a))));
+}
+
+test "FVec3: scale" {
+    const a = FVec3.fromInts(2, 4, 6);
+    const s = a.scale(FP.fromFloat(0.5));
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), s.x.toF64(), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f64, 2.0), s.y.toF64(), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f64, 3.0), s.z.toF64(), 0.001);
+    // scale by zero yields zero vector
+    try std.testing.expect(FVec3.zero.eql(a.scale(FP.zero)));
+    // scale by one yields same vector
+    try std.testing.expect(a.eql(a.scale(FP.one)));
+}
+
+test "FVec3: len_sq" {
+    // 3² + 4² + 0² = 25
+    const a = FVec3.fromInts(3, 4, 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 25.0), a.len_sq().toF64(), 0.01);
+    // zero vector has len_sq = 0
+    try std.testing.expect(FP.zero.eql(FVec3.zero.len_sq()));
+}
+
+test "FVec3: eql negative case" {
+    const a = FVec3.fromInts(1, 2, 3);
+    const b = FVec3.fromInts(1, 2, 4);
+    try std.testing.expect(!a.eql(b));
+    try std.testing.expect(!FVec3.unit_x.eql(FVec3.unit_y));
+}
+
+test "FQuat: mul — identity is absorbing element" {
+    const q = FQuat.init(
+        FP.fromFloat(0.0),
+        FP.fromFloat(0.0),
+        FP.fromFloat(0.7071067811865476),
+        FP.fromFloat(0.7071067811865476),
+    );
+    // identity * q == q
+    const lhs = FQuat.identity.mul(q);
+    try std.testing.expectApproxEqAbs(q.x.toF64(), lhs.x.toF64(), 0.002);
+    try std.testing.expectApproxEqAbs(q.y.toF64(), lhs.y.toF64(), 0.002);
+    try std.testing.expectApproxEqAbs(q.z.toF64(), lhs.z.toF64(), 0.002);
+    try std.testing.expectApproxEqAbs(q.w.toF64(), lhs.w.toF64(), 0.002);
+    // q * identity == q
+    const rhs = q.mul(FQuat.identity);
+    try std.testing.expectApproxEqAbs(q.x.toF64(), rhs.x.toF64(), 0.002);
+    try std.testing.expectApproxEqAbs(q.w.toF64(), rhs.w.toF64(), 0.002);
+}
+
+test "FQuat: mul — 90° rotations about z compose to 180°" {
+    // q90 = 90° about z-axis: (0, 0, sin45°, cos45°)
+    const half_sqrt2 = FP.fromFloat(std.math.sqrt2 / 2.0);
+    const q90 = FQuat.init(FP.zero, FP.zero, half_sqrt2, half_sqrt2);
+    // q90 * q90 should be 180° about z: (0, 0, 1, 0)
+    const q180 = q90.mul(q90);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), q180.x.toF64(), 0.002);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), q180.y.toF64(), 0.002);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), q180.z.toF64(), 0.002);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), q180.w.toF64(), 0.002);
+}
+
+test "FQuat: rotate — 90° about z maps unit_x to unit_y" {
+    const half_sqrt2 = FP.fromFloat(std.math.sqrt2 / 2.0);
+    const q90z = FQuat.init(FP.zero, FP.zero, half_sqrt2, half_sqrt2);
+    const rotated = q90z.rotate(FVec3.unit_x);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), rotated.x.toF64(), 0.002);
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), rotated.y.toF64(), 0.002);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), rotated.z.toF64(), 0.002);
+}
+
+test "FQuat: rotate — 90° about z maps unit_y to -unit_x" {
+    const half_sqrt2 = FP.fromFloat(std.math.sqrt2 / 2.0);
+    const q90z = FQuat.init(FP.zero, FP.zero, half_sqrt2, half_sqrt2);
+    const rotated = q90z.rotate(FVec3.unit_y);
+    try std.testing.expectApproxEqAbs(@as(f64, -1.0), rotated.x.toF64(), 0.002);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), rotated.y.toF64(), 0.002);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), rotated.z.toF64(), 0.002);
+}
+
+test "FQuat: eql negative case" {
+    const a = FQuat.identity;
+    const b = FQuat.init(FP.one, FP.zero, FP.zero, FP.zero);
+    try std.testing.expect(!a.eql(b));
+}
+
+test "FQuat: toQuatf" {
+    const half_sqrt2 = FP.fromFloat(std.math.sqrt2 / 2.0);
+    const fq = FQuat.init(FP.zero, FP.zero, half_sqrt2, half_sqrt2);
+    const rf = fq.toQuatf();
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), rf.x, 0.002);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), rf.y, 0.002);
+    try std.testing.expectApproxEqAbs(@as(f32, std.math.sqrt2 / 2.0), rf.z, 0.002);
+    try std.testing.expectApproxEqAbs(@as(f32, std.math.sqrt2 / 2.0), rf.w, 0.002);
+}
+
+test "Vec3f: neg" {
+    const a = Vec3f.init(1, -2, 3);
+    const n = Vec3f.neg(a);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), n.x, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 2.0), n.y, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, -3.0), n.z, 0.001);
+}
+
+test "Vec3f: cross product" {
+    // x × y = z
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), Vec3f.unit_x.cross(Vec3f.unit_y).x, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), Vec3f.unit_x.cross(Vec3f.unit_y).y, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), Vec3f.unit_x.cross(Vec3f.unit_y).z, 0.001);
+    // y × x = -z (anti-commutativity)
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), Vec3f.unit_y.cross(Vec3f.unit_x).z, 0.001);
+}
+
+test "Vec3f: len_sq" {
+    try std.testing.expectApproxEqAbs(@as(f32, 25.0), Vec3f.init(3, 4, 0).len_sq(), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), Vec3f.zero.len_sq(), 0.001);
+}
+
+test "Vec3f: normalize produces unit vector" {
+    const v = Vec3f.init(3, 4, 0);
+    const n = v.normalize();
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), n.len(), 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.6), n.x, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.8), n.y, 0.001);
+}
+
+test "Vec3f: lerp at endpoints" {
+    const a = Vec3f.init(1, 2, 3);
+    const b = Vec3f.init(7, 8, 9);
+    // t=0 returns a
+    const at0 = Vec3f.lerp(a, b, 0.0);
+    try std.testing.expectApproxEqAbs(a.x, at0.x, 0.001);
+    try std.testing.expectApproxEqAbs(a.z, at0.z, 0.001);
+    // t=1 returns b
+    const at1 = Vec3f.lerp(a, b, 1.0);
+    try std.testing.expectApproxEqAbs(b.x, at1.x, 0.001);
+    try std.testing.expectApproxEqAbs(b.z, at1.z, 0.001);
+}
+
+test "Vec4f: fromVec3 and toVec3 round-trip" {
+    const v3 = Vec3f.init(1, 2, 3);
+    const v4 = Vec4f.fromVec3(v3, 1.0);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), v4.w, 0.001);
+    const back = v4.toVec3();
+    try std.testing.expectApproxEqAbs(v3.x, back.x, 0.001);
+    try std.testing.expectApproxEqAbs(v3.y, back.y, 0.001);
+    try std.testing.expectApproxEqAbs(v3.z, back.z, 0.001);
+}
+
+test "Vec4f: dot" {
+    const a = Vec4f.init(1, 2, 3, 4);
+    const b = Vec4f.init(5, 6, 7, 8);
+    // 5+12+21+32 = 70
+    try std.testing.expectApproxEqAbs(@as(f32, 70.0), Vec4f.dot(a, b), 0.001);
+}
+
+test "Mat4f: uniform_scale" {
+    const m = Mat4f.uniform_scale(3.0);
+    const v = Vec4f.init(1, 2, 3, 1);
+    const result = m.mul_vec4(v);
+    try std.testing.expectApproxEqAbs(@as(f32, 3.0), result.x, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 6.0), result.y, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 9.0), result.z, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), result.w, 0.001);
+}
+
+test "Mat4f: translation does not move direction vectors (w=0)" {
+    const t = Mat4f.translation(Vec3f.init(5, 3, 1));
+    // A direction vector (w=0) must not be affected by translation.
+    const dir = Vec4f.init(1, 0, 0, 0);
+    const result = t.mul_vec4(dir);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), result.x, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), result.y, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), result.z, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), result.w, 0.001);
+}
+
+test "Mat4f: mul — two translations compose" {
+    const t1 = Mat4f.translation(Vec3f.init(1, 2, 3));
+    const t2 = Mat4f.translation(Vec3f.init(4, 5, 6));
+    const combined = t1.mul(t2);
+    const p = Vec4f.fromVec3(Vec3f.zero, 1.0);
+    const result = combined.mul_vec4(p);
+    try std.testing.expectApproxEqAbs(@as(f32, 5.0), result.x, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 7.0), result.y, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 9.0), result.z, 0.001);
+}
+
+test "Mat4f: ortho — maps corners to NDC correctly" {
+    // Maps the volume [-10,10]x[-5,5]x[1,100] to NDC [−1,1]x[−1,1]x[0,1].
+    const m = Mat4f.ortho(-10, 10, -5, 5, 1, 100);
+
+    // Near-plane top-right corner (10, 5, 1) → (1, 1, 0)
+    const near_tr = m.mul_vec4(Vec4f.init(10, 5, 1, 1));
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), near_tr.x, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), near_tr.y, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), near_tr.z, 0.001);
+
+    // Far-plane top-right corner (10, 5, 100) → (1, 1, 1)
+    const far_tr = m.mul_vec4(Vec4f.init(10, 5, 100, 1));
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), far_tr.x, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), far_tr.y, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), far_tr.z, 0.001);
+
+    // Near-plane bottom-left corner (-10, -5, 1) → (-1, -1, 0)
+    const near_bl = m.mul_vec4(Vec4f.init(-10, -5, 1, 1));
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), near_bl.x, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.0), near_bl.y, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), near_bl.z, 0.001);
+
+    // Center of the volume → (0, 0, 0.5)
+    const mid_z = 1.0 + (100.0 - 1.0) / 2.0; // midpoint of [1, 100]
+    const center = m.mul_vec4(Vec4f.init(0, 0, mid_z, 1));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), center.x, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), center.y, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.5), center.z, 0.001);
+}
+
+test "Mat4f: perspective — w component is z for depth" {
+    // For a perspective matrix the w component of the result must equal the input z.
+    const m = Mat4f.perspective(std.math.pi / 2.0, 16.0 / 9.0, 0.1, 1000.0);
+    const p = Vec4f.init(0, 0, 5, 1); // point on the camera axis at depth 5
+    const result = m.mul_vec4(p);
+    // w_clip = z_eye = 5 (right-handed convention)
+    try std.testing.expectApproxEqAbs(@as(f32, 5.0), result.w, 0.01);
+    // x=0, y=0 maps to x_clip=0, y_clip=0
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), result.x, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), result.y, 0.001);
+}
+
+test "Mat4f: look_at — forward axis" {
+    // Camera at (0,0,-5) looking at origin with up=(0,1,0).
+    const view = Mat4f.look_at(
+        Vec3f.init(0, 0, -5),
+        Vec3f.zero,
+        Vec3f.unit_y,
+    );
+    // Origin in view space should have z > 0 (in front of camera).
+    const origin_view = view.mul_vec4(Vec4f.fromVec3(Vec3f.zero, 1.0));
+    try std.testing.expect(origin_view.z > 0.0);
+    // The eye itself in view space is at (0,0,0).
+    const eye_view = view.mul_vec4(Vec4f.init(0, 0, -5, 1));
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), eye_view.x, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), eye_view.y, 0.001);
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), eye_view.z, 0.001);
+}
+
+test "Mat4f: ptr returns pointer to first element" {
+    const m = Mat4f.identity;
+    const p = m.ptr();
+    // First element of column-major identity is 1.0.
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), p.*, 0.001);
+}
+
+test "Quatf: mul — identity absorbs" {
+    const q = Quatf.init(0, 0, std.math.sqrt2 / 2.0, std.math.sqrt2 / 2.0);
+    const lhs = Quatf.identity.mul(q);
+    try std.testing.expectApproxEqAbs(q.x, lhs.x, 0.001);
+    try std.testing.expectApproxEqAbs(q.w, lhs.w, 0.001);
+}
+
+test "Quatf: toFQuat" {
+    const q = Quatf.init(0, 0, std.math.sqrt2 / 2.0, std.math.sqrt2 / 2.0);
+    const fq = q.toFQuat();
+    try std.testing.expectApproxEqAbs(q.x, fq.x.toF32(), 0.002);
+    try std.testing.expectApproxEqAbs(q.z, fq.z.toF32(), 0.002);
+    try std.testing.expectApproxEqAbs(q.w, fq.w.toF32(), 0.002);
+}
+
 test "Vec3f: toFVec3 and back to Vec3f" {
     const v = Vec3f.init(3.5, -1.25, 0.0);
     const fp = v.toFVec3();

@@ -191,3 +191,69 @@ test "Rng: seed 0 is valid (does not produce zero state)" {
     const v = rng.next();
     try std.testing.expect(v != 0 or rng.a != 0 or rng.b != 0 or rng.c != 0);
 }
+
+test "Rng: nextBelow(1) always returns 0" {
+    // bound == 1 means the only valid result is 0.
+    var rng = Rng.init(0xABCDEF);
+    for (0..1000) |_| {
+        try std.testing.expectEqual(@as(u64, 0), rng.nextBelow(1));
+    }
+}
+
+test "Rng: nextIntRange lo == hi returns lo" {
+    // When lo == hi there is exactly one possible value.
+    var rng = Rng.init(0x1234);
+    for (0..100) |_| {
+        try std.testing.expectEqual(@as(i64, -7), rng.nextIntRange(-7, -7));
+        try std.testing.expectEqual(@as(i64, 0), rng.nextIntRange(0, 0));
+        try std.testing.expectEqual(@as(i64, 42), rng.nextIntRange(42, 42));
+    }
+}
+
+test "Rng: nextFPRange stays within [lo, hi)" {
+    var rng = Rng.init(0x5A5A5A5A);
+    const lo = FP.fromInt(2);
+    const hi = FP.fromInt(5);
+    for (0..10_000) |_| {
+        const v = rng.nextFPRange(lo, hi);
+        try std.testing.expect(v.raw >= lo.raw);
+        try std.testing.expect(v.raw < hi.raw);
+    }
+}
+
+test "Rng: nextFPRange lo == hi returns lo" {
+    var rng = Rng.init(0xBEEF);
+    const lo = FP.fromInt(3);
+    for (0..100) |_| {
+        const v = rng.nextFPRange(lo, lo);
+        try std.testing.expectEqual(lo.raw, v.raw);
+    }
+}
+
+test "Rng: shuffle empty slice does not panic" {
+    var rng = Rng.init(0x1111);
+    var arr: [0]u32 = .{};
+    rng.shuffle(u32, &arr); // must not panic or access out-of-bounds
+}
+
+test "Rng: shuffle single-element slice is unchanged" {
+    var rng = Rng.init(0x2222);
+    var arr = [_]u32{42};
+    rng.shuffle(u32, &arr);
+    try std.testing.expectEqual(@as(u32, 42), arr[0]);
+}
+
+test "Rng: shuffle is reproducible with the same seed" {
+    const n = 16;
+    var arr1 = [_]u32{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 };
+    var arr2 = arr1;
+
+    var r1 = Rng.init(0xFEEDFACE);
+    var r2 = Rng.init(0xFEEDFACE);
+    r1.shuffle(u32, &arr1);
+    r2.shuffle(u32, &arr2);
+
+    for (0..n) |i| {
+        try std.testing.expectEqual(arr1[i], arr2[i]);
+    }
+}

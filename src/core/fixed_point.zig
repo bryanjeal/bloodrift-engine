@@ -118,12 +118,18 @@ pub fn FixedPoint(comptime frac_bits: u6) type {
         }
 
         /// Negate.
+        /// Precondition: a.raw != minInt(i64). The value minInt(i64) represents
+        /// approximately -140 trillion in Q16.16 — unreachable in any game world.
         pub fn neg(a: Self) Self {
+            std.debug.assert(a.raw != std.math.minInt(i64));
             return .{ .raw = -a.raw };
         }
 
         /// Absolute value.
+        /// Precondition: a.raw != minInt(i64). |minInt(i64)| cannot be represented
+        /// as i64, so the @intCast would overflow.
         pub fn abs(a: Self) Self {
+            std.debug.assert(a.raw != std.math.minInt(i64));
             return .{ .raw = @intCast(@abs(a.raw)) };
         }
 
@@ -360,6 +366,170 @@ test "cos: cos(0) == 1" {
 test "cos: cos(π) == -1" {
     const result = cos(FP.fromFloat(std.math.pi));
     try std.testing.expectApproxEqAbs(@as(f64, -1.0), result.toF64(), 0.001);
+}
+
+test "FixedPoint: neg" {
+    const FP16 = FixedPoint(16);
+    // neg(zero) == zero
+    try std.testing.expect(FP16.zero.eql(FP16.neg(FP16.zero)));
+    // neg(positive) is negative
+    try std.testing.expect(FP16.neg(FP16.fromInt(5)).eql(FP16.fromInt(-5)));
+    // neg(negative) is positive
+    try std.testing.expect(FP16.neg(FP16.fromInt(-3)).eql(FP16.fromInt(3)));
+    // neg(neg(x)) == x
+    const v = FP16.fromFloat(1.5);
+    try std.testing.expect(FP16.neg(FP16.neg(v)).eql(v));
+}
+
+test "FixedPoint: fromRaw and toF32" {
+    const FP16 = FixedPoint(16);
+    // fromRaw wraps the value directly.
+    const r = FP16.fromRaw(FP16.scale); // == one
+    try std.testing.expect(FP16.one.eql(r));
+    // toF32 converts correctly.
+    const v = FP16.fromFloat(3.25);
+    try std.testing.expectApproxEqAbs(@as(f32, 3.25), v.toF32(), 0.0002);
+    try std.testing.expectApproxEqAbs(@as(f32, -1.5), FP16.fromFloat(-1.5).toF32(), 0.0002);
+}
+
+test "FixedPoint: toInt truncates toward zero for fractional values" {
+    const FP16 = FixedPoint(16);
+    // Positive fractional: 2.9 → 2
+    try std.testing.expectEqual(@as(i64, 2), FP16.fromFloat(2.9).toInt());
+    // Negative fractional: -2.9 → -2 (truncated toward zero, not floor)
+    try std.testing.expectEqual(@as(i64, -2), FP16.fromFloat(-2.9).toInt());
+    // -0.5 → 0
+    try std.testing.expectEqual(@as(i64, 0), FP16.fromFloat(-0.5).toInt());
+    // Exact integer: -5.0 → -5
+    try std.testing.expectEqual(@as(i64, -5), FP16.fromInt(-5).toInt());
+}
+
+test "FixedPoint: comparison operators" {
+    const FP16 = FixedPoint(16);
+    const a = FP16.fromInt(3);
+    const b = FP16.fromInt(5);
+    const c = FP16.fromInt(3);
+
+    // lt
+    try std.testing.expect(a.lt(b));
+    try std.testing.expect(!b.lt(a));
+    try std.testing.expect(!a.lt(c)); // equal is not less-than
+
+    // lte
+    try std.testing.expect(a.lte(b));
+    try std.testing.expect(a.lte(c)); // equal satisfies lte
+    try std.testing.expect(!b.lte(a));
+
+    // gt
+    try std.testing.expect(b.gt(a));
+    try std.testing.expect(!a.gt(b));
+    try std.testing.expect(!a.gt(c));
+
+    // gte
+    try std.testing.expect(b.gte(a));
+    try std.testing.expect(a.gte(c)); // equal satisfies gte
+    try std.testing.expect(!a.gte(b));
+
+    // Negative values
+    const neg5 = FP16.fromInt(-5);
+    try std.testing.expect(neg5.lt(a));
+    try std.testing.expect(a.gt(neg5));
+}
+
+test "FixedPoint: clamp lo == hi returns that value" {
+    const FP16 = FixedPoint(16);
+    const v = FP16.fromInt(7);
+    const result = FP16.clamp(FP16.fromInt(3), v, v);
+    try std.testing.expect(v.eql(result));
+    // Value already equal to lo == hi.
+    try std.testing.expect(v.eql(FP16.clamp(v, v, v)));
+}
+
+test "FixedPoint: clamp at exact boundary" {
+    const FP16 = FixedPoint(16);
+    const lo = FP16.fromInt(0);
+    const hi = FP16.fromInt(10);
+    // Value exactly at lo returns lo.
+    try std.testing.expect(lo.eql(FP16.clamp(lo, lo, hi)));
+    // Value exactly at hi returns hi.
+    try std.testing.expect(hi.eql(FP16.clamp(hi, lo, hi)));
+}
+
+test "FixedPoint: mul with negatives" {
+    const FP16 = FixedPoint(16);
+    // positive * negative = negative
+    const pos = FP16.fromFloat(3.0);
+    const neg_v = FP16.fromFloat(-2.0);
+    try std.testing.expectApproxEqAbs(@as(f64, -6.0), pos.mul(neg_v).toF64(), 0.001);
+    // negative * negative = positive
+    try std.testing.expectApproxEqAbs(@as(f64, 6.0), neg_v.mul(FP16.fromFloat(-3.0)).toF64(), 0.001);
+    // x * zero = zero
+    try std.testing.expect(FP16.zero.eql(pos.mul(FP16.zero)));
+    // x * one = x
+    try std.testing.expect(pos.eql(pos.mul(FP16.one)));
+}
+
+test "FixedPoint: div with negatives" {
+    const FP16 = FixedPoint(16);
+    // positive / negative = negative
+    try std.testing.expectApproxEqAbs(
+        @as(f64, -2.0),
+        FP16.fromFloat(6.0).div(FP16.fromFloat(-3.0)).toF64(),
+        0.001,
+    );
+    // negative / negative = positive
+    try std.testing.expectApproxEqAbs(
+        @as(f64, 2.0),
+        FP16.fromFloat(-6.0).div(FP16.fromFloat(-3.0)).toF64(),
+        0.001,
+    );
+    // zero / non-zero = zero
+    try std.testing.expect(FP16.zero.eql(FP16.zero.div(FP16.fromInt(5))));
+}
+
+test "FixedPoint: sqrt of larger and small fractional values" {
+    const FP16 = FixedPoint(16);
+    // sqrt(100) = 10
+    try std.testing.expectApproxEqAbs(@as(f64, 10.0), FP16.sqrt(FP16.fromInt(100)).toF64(), 0.01);
+    // sqrt(10000) = 100
+    try std.testing.expectApproxEqAbs(@as(f64, 100.0), FP16.sqrt(FP16.fromInt(10000)).toF64(), 0.1);
+    // sqrt(epsilon) > 0
+    const r = FP16.sqrt(FP16.epsilon);
+    try std.testing.expect(r.raw > 0);
+    // sqrt(0.0625) = 0.25
+    try std.testing.expectApproxEqAbs(@as(f64, 0.25), FP16.sqrt(FP16.fromFloat(0.0625)).toF64(), 0.001);
+}
+
+test "sin: negative angle normalizes correctly" {
+    // sin(-π/2) = -1
+    const result = sin(FP.fromFloat(-std.math.pi / 2.0));
+    try std.testing.expectApproxEqAbs(@as(f64, -1.0), result.toF64(), 0.001);
+    // sin(-π) ≈ 0
+    const result2 = sin(FP.fromFloat(-std.math.pi));
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), result2.toF64(), 0.001);
+}
+
+test "sin: arbitrary angle (π/4)" {
+    // sin(π/4) = √2/2 ≈ 0.7071
+    const result = sin(FP.fromFloat(std.math.pi / 4.0));
+    try std.testing.expectApproxEqAbs(@as(f64, std.math.sqrt2 / 2.0), result.toF64(), 0.001);
+}
+
+test "cos: arbitrary angle (π/3)" {
+    // cos(π/3) = 0.5
+    const result = cos(FP.fromFloat(std.math.pi / 3.0));
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), result.toF64(), 0.001);
+}
+
+test "sin/cos: Pythagorean identity sin²+cos²=1" {
+    // For several angles, sin²(θ) + cos²(θ) should equal 1.
+    const angles = [_]f64{ 0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0 };
+    for (angles) |a| {
+        const s = sin(FP.fromFloat(a));
+        const c = cos(FP.fromFloat(a));
+        const identity = s.mul(s).add(c.mul(c));
+        try std.testing.expectApproxEqAbs(@as(f64, 1.0), identity.toF64(), 0.002);
+    }
 }
 
 test "FixedPoint: determinism — same raw input always produces same output" {
