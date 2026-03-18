@@ -169,7 +169,11 @@ pub fn PoolAllocator(comptime T: type) type {
             std.debug.assert(byte_offset % @sizeOf(Slot) == 0);
             const idx: u32 = @intCast(byte_offset / @sizeOf(Slot));
             std.debug.assert(idx < self.slots.len);
-            std.debug.assert(self.slots[idx] == .occupied);
+            // Use switch to test the active tag only — payload equality is irrelevant here.
+            std.debug.assert(switch (self.slots[idx]) {
+                .occupied => true,
+                .free => false,
+            });
             self.slots[idx] = .{ .free = self.free_head };
             self.free_head = idx;
             self.len -= 1;
@@ -287,4 +291,140 @@ test "PoolAllocator: capacity unchanged after alloc/free" {
     p.* = 99;
     pool.free(p);
     try std.testing.expectEqual(@as(u32, 8), pool.capacity());
+}
+
+test "ArenaAllocator: exactly fills buffer" {
+    // Allocating exactly capacity bytes must succeed; one more byte must fail.
+    var backing: [32]u8 = undefined;
+    var arena = ArenaAllocator.init(&backing);
+    const alloc = arena.allocator();
+
+    const slice = try alloc.alloc(u8, 32);
+    try std.testing.expectEqual(@as(usize, 32), slice.len);
+    try std.testing.expectEqual(arena.used(), arena.capacity());
+
+    const extra = alloc.alloc(u8, 1);
+    try std.testing.expectError(error.OutOfMemory, extra);
+}
+
+test "ArenaAllocator: used and capacity invariant" {
+    var backing: [256]u8 = undefined;
+    var arena = ArenaAllocator.init(&backing);
+    const alloc = arena.allocator();
+
+    try std.testing.expectEqual(@as(usize, 256), arena.capacity());
+    try std.testing.expectEqual(@as(usize, 0), arena.used());
+
+    _ = try alloc.create(u64);
+    try std.testing.expect(arena.used() > 0);
+    try std.testing.expect(arena.used() <= arena.capacity());
+
+    arena.reset();
+    try std.testing.expectEqual(@as(usize, 0), arena.used());
+    try std.testing.expectEqual(@as(usize, 256), arena.capacity());
+}
+
+test "ArenaAllocator: multiple resets restore full capacity" {
+    var backing: [128]u8 = undefined;
+    var arena = ArenaAllocator.init(&backing);
+    const alloc = arena.allocator();
+
+    for (0..5) |_| {
+        _ = try alloc.alloc(u8, 64);
+        try std.testing.expect(arena.used() >= 64);
+        arena.reset();
+        try std.testing.expectEqual(@as(usize, 0), arena.used());
+        // After reset, a full-capacity alloc must succeed again.
+        _ = try alloc.alloc(u8, 128);
+        arena.reset();
+    }
+}
+
+test "PoolAllocator: capacity = 1 edge case" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const backing = gpa.allocator();
+
+    const Pool = PoolAllocator(u32);
+    var pool = try Pool.init(backing, 1);
+    defer pool.deinit(backing);
+
+    try std.testing.expectEqual(@as(u32, 1), pool.capacity());
+    try std.testing.expectEqual(@as(u32, 0), pool.len);
+
+    const p = pool.alloc().?;
+    p.* = 7;
+    try std.testing.expectEqual(@as(u32, 1), pool.len);
+
+    // Exhausted after first alloc.
+    try std.testing.expectEqual(@as(?*u32, null), pool.alloc());
+
+    // Free and re-alloc.
+    pool.free(p);
+    try std.testing.expectEqual(@as(u32, 0), pool.len);
+
+    const q = pool.alloc().?;
+    q.* = 99;
+    try std.testing.expectEqual(@as(u32, 1), pool.len);
+}
+
+test "PoolAllocator: fill all, free all, fill all again" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const backing = gpa.allocator();
+
+    const cap: u32 = 8;
+    const Pool = PoolAllocator(u64);
+    var pool = try Pool.init(backing, cap);
+    defer pool.deinit(backing);
+
+    // Fill to capacity.
+    var ptrs: [cap]*u64 = undefined;
+    for (0..cap) |i| {
+        ptrs[i] = pool.alloc().?;
+        ptrs[i].* = @intCast(i);
+    }
+    try std.testing.expectEqual(cap, pool.len);
+    try std.testing.expectEqual(@as(?*u64, null), pool.alloc());
+
+    // Free all.
+    for (0..cap) |i| pool.free(ptrs[i]);
+    try std.testing.expectEqual(@as(u32, 0), pool.len);
+
+    // Fill again — all cap slots must be available.
+    for (0..cap) |i| {
+        ptrs[i] = pool.alloc().?;
+        ptrs[i].* = @intCast(i + 100);
+    }
+    try std.testing.expectEqual(cap, pool.len);
+    // Values are correctly written in the second fill.
+    for (0..cap) |i| {
+        try std.testing.expectEqual(@as(u64, @intCast(i + 100)), ptrs[i].*);
+    }
+}
+
+test "PoolAllocator: len tracks correctly across interleaved alloc/free" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const backing = gpa.allocator();
+
+    const Pool = PoolAllocator(u32);
+    var pool = try Pool.init(backing, 4);
+    defer pool.deinit(backing);
+
+    const a = pool.alloc().?;
+    const b = pool.alloc().?;
+    const c = pool.alloc().?;
+    try std.testing.expectEqual(@as(u32, 3), pool.len);
+
+    pool.free(b);
+    try std.testing.expectEqual(@as(u32, 2), pool.len);
+
+    const d = pool.alloc().?;
+    _ = d;
+    try std.testing.expectEqual(@as(u32, 3), pool.len);
+
+    pool.free(a);
+    pool.free(c);
+    try std.testing.expectEqual(@as(u32, 1), pool.len);
 }
