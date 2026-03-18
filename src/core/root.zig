@@ -1,0 +1,24 @@
+// Engine core subsystem — public API.
+//
+// Exports all core primitives: types, allocators, fixed-point math, math
+// types, and the seeded PRNG. Game code imports these via:
+//
+//   const core = @import("engine").core;
+//   const EntityId = core.types.EntityId;
+//   const FP = core.fixed_point.FP;
+//   const FVec3 = core.math.FVec3;
+
+pub const types = @import("types.zig");
+pub const memory = @import("memory.zig");
+pub const fixed_point = @import("fixed_point.zig");
+pub const math = @import("math.zig");
+pub const random = @import("random.zig");
+
+// Pull all sub-module tests into the engine test binary.
+test {
+    _ = types;
+    _ = memory;
+    _ = fixed_point;
+    _ = math;
+    _ = random;
+}
