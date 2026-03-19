@@ -762,9 +762,10 @@ test "Mat4f: look_at — forward axis" {
         Vec3f.zero,
         Vec3f.unit_y,
     );
-    // Origin in view space should have z > 0 (in front of camera).
+    // Origin in view space should have z < 0 (in front of camera in
+    // right-handed convention where the camera looks along -z).
     const origin_view = view.mul_vec4(Vec4f.fromVec3(Vec3f.zero, 1.0));
-    try std.testing.expect(origin_view.z > 0.0);
+    try std.testing.expect(origin_view.z < 0.0);
     // The eye itself in view space is at (0,0,0).
     const eye_view = view.mul_vec4(Vec4f.init(0, 0, -5, 1));
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), eye_view.x, 0.001);

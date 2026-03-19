@@ -2,6 +2,12 @@
     .name = .bloodrift_engine,
     .fingerprint = 0x8d27edc972cea472,
     .version = "0.1.0",
-    .minimum_zig_version = "0.15.0",
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{
+        .zflecs = .{
+            .url = "https://github.com/zig-gamedev/zflecs/archive/c832982bdde5ec0d4cd21b4555badfed904ccec4.tar.gz",
+            .hash = "zflecs-0.2.0-dev-1PN3ysolPAABJMgsIgYPrs0G278g-f7mCt9kNG9IMq8V",
+        },
+    },
     .paths = .{""},
 }

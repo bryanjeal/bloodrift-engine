@@ -240,13 +240,13 @@ pub fn sin(angle: FP) FP {
     while (a.raw < 0) a = a.add(two_pi);
     while (a.gte(two_pi)) a = a.sub(two_pi);
 
-    // Map angle to table index in Q16.16.
-    // index_fp = a * sin_table_size / (2π), in raw units:
-    //   a.raw * sin_table_size / two_pi.raw
+    // Map angle to table index in Q16.16 format.
+    // index_fp = a * sin_table_size / (2π), stored as fixed-point so integer
+    // part = table index, fractional part = interpolation weight.
     const table_fp_raw: i64 = @intCast(
-        @divTrunc(@as(i128, a.raw) * sin_table_size, @as(i128, two_pi.raw)),
+        @divTrunc(@as(i128, a.raw) * sin_table_size * FP.scale, @as(i128, two_pi.raw)),
     );
-    const idx0: usize = @intCast(@divTrunc(table_fp_raw, FP.scale) % sin_table_size);
+    const idx0: usize = @intCast(@mod(@divTrunc(table_fp_raw, FP.scale), sin_table_size));
     const idx1: usize = (idx0 + 1) % sin_table_size;
     const frac_part: i64 = @mod(table_fp_raw, FP.scale);
 
