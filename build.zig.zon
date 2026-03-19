@@ -8,6 +8,10 @@
             .url = "https://github.com/zig-gamedev/zflecs/archive/c832982bdde5ec0d4cd21b4555badfed904ccec4.tar.gz",
             .hash = "zflecs-0.2.0-dev-1PN3ysolPAABJMgsIgYPrs0G278g-f7mCt9kNG9IMq8V",
         },
+        .zsdl = .{
+            .url = "https://github.com/zig-gamedev/zsdl/archive/refs/heads/main.tar.gz",
+            .hash = "zsdl-0.4.0-dev-rFpjEzgIXwBdDmlda0YnQPRVApMc1YEgbyzLWuT9GupM",
+        },
     },
     .paths = .{""},
 }

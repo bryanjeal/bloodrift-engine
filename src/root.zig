@@ -6,13 +6,15 @@
 
 pub const core = @import("core/root.zig");
 
+pub const platform = @import("platform/root.zig");
+
 // Subsystems added as they are implemented:
 // pub const renderer = @import("renderer/root.zig");
 // pub const network  = @import("network/root.zig");
 // pub const physics  = @import("physics/root.zig");
 // pub const audio    = @import("audio/root.zig");
-// pub const platform = @import("platform/root.zig");
 
 test {
     _ = core;
+    _ = platform;
 }
