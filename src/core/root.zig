@@ -13,6 +13,8 @@ pub const memory = @import("memory.zig");
 pub const fixed_point = @import("fixed_point.zig");
 pub const math = @import("math.zig");
 pub const random = @import("random.zig");
+pub const ecs = @import("ecs.zig");
+pub const sidecar_store = @import("sidecar_store.zig");
 
 // Pull all sub-module tests into the engine test binary.
 test {
@@ -21,4 +23,6 @@ test {
     _ = fixed_point;
     _ = math;
     _ = random;
+    _ = ecs;
+    _ = sidecar_store;
 }
