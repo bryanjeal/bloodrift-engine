@@ -12,6 +12,10 @@
             .url = "https://github.com/zig-gamedev/zsdl/archive/refs/heads/main.tar.gz",
             .hash = "zsdl-0.4.0-dev-rFpjEzgIXwBdDmlda0YnQPRVApMc1YEgbyzLWuT9GupM",
         },
+        .vulkan = .{
+            .url = "git+https://github.com/Snektron/vulkan-zig#bed9e2d2241ade679b78892c829f41cecc2ef5ef",
+            .hash = "vulkan-0.0.0-r7YtxwA_AwAU4rmOITZD_KJs11Kie1sv0t-pcMDQGIqw",
+        },
     },
     .paths = .{""},
 }
