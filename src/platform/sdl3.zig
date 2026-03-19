@@ -2,7 +2,7 @@
 // keyboard input.
 //
 // This module wraps the minimal SDL3 surface needed for the game loop:
-//   - Window: create/destroy an OS window; present (no-op until M7 renderer).
+//   - Window: create/destroy an OS window; present (deprecated, use Renderer).
 //   - Timer: nanosecond-precision elapsed time via SDL_GetPerformanceCounter.
 //   - InputSnapshot: one frame of raw keyboard state (boolean per key).
 //   - pollEvents: drain the SDL3 event queue and update an InputSnapshot.
@@ -29,7 +29,8 @@ pub const Window = struct {
         std.debug.assert(width > 0);
         std.debug.assert(height > 0);
         try sdl.init(.{ .video = true, .events = true });
-        const handle = try sdl.createWindow(title, @intCast(width), @intCast(height), .{});
+        // SDL_WINDOW_VULKAN is required for SDL_Vulkan_CreateSurface (M7+).
+        const handle = try sdl.createWindow(title, @intCast(width), @intCast(height), .{ .vulkan = true });
         return .{ .handle = handle };
     }
 
@@ -40,7 +41,8 @@ pub const Window = struct {
         self.handle = undefined;
     }
 
-    /// Swap the frame buffer. No-op until the M7 Vulkan renderer is attached.
+    /// @deprecated: Use engine.renderer.Renderer.present() instead (M7+).
+    /// Kept for build compatibility during the M7 transition.
     pub fn present(_: *const Window) void {}
 };
 

@@ -10,8 +10,9 @@ pub const network = @import("network/root.zig");
 
 pub const platform = @import("platform/root.zig");
 
+pub const renderer = @import("renderer/root.zig");
+
 // Subsystems added as they are implemented:
-// pub const renderer = @import("renderer/root.zig");
 // pub const physics  = @import("physics/root.zig");
 // pub const audio    = @import("audio/root.zig");
 
@@ -19,4 +20,5 @@ test {
     _ = core;
     _ = network;
     _ = platform;
+    _ = renderer;
 }
