@@ -160,6 +160,11 @@ pub const World = struct {
     /// ctx is passed through to cb unchanged — use a pointer to local state
     /// to capture variables without heap allocation. Prefab entities are
     /// excluded by Flecs and will not be visited.
+    /// Iterate all entities that have component T, calling cb for each.
+    ///
+    /// ctx is passed through to cb unchanged — use a pointer to local state
+    /// to capture variables without heap allocation. Prefab entities (those
+    /// with EcsPrefab) are excluded and will not be visited.
     pub fn each(
         self: *World,
         comptime T: type,
@@ -172,6 +177,8 @@ pub const World = struct {
             const ents = it.entities();
             std.debug.assert(comps.len == ents.len);
             for (ents, comps) |entity, *comp| {
+                // Skip prefab entities — they are templates, not live game entities.
+                if (zflecs.has_id(self.raw, entity, zflecs.Prefab)) continue;
                 cb(ctx, entity, comp);
             }
         }
