@@ -432,6 +432,24 @@ pub const Quatf = struct {
 };
 
 // ============================================================================
+// Easing functions — f32, t in [0, 1]
+//
+// Standard Robert Penner easing functions for animation and UI transitions.
+// All functions map t=0 → 0 and t=1 → 1.
+// Reference: https://easings.net
+// ============================================================================
+
+pub const Ease = struct {
+    /// Quartic ease-out: fast start, decelerates sharply toward t=1.
+    /// f(t) = 1 − (1 − t)⁴
+    /// Useful for camera follow, projectile arrival, and UI panel slides.
+    pub fn outQuart(t: f32) f32 {
+        const inv = 1.0 - t;
+        return 1.0 - inv * inv * inv * inv;
+    }
+};
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -803,4 +821,32 @@ test "Vec3f: toFVec3 and back to Vec3f" {
     try std.testing.expectApproxEqAbs(v.x, back.x, 0.0002);
     try std.testing.expectApproxEqAbs(v.y, back.y, 0.0002);
     try std.testing.expectApproxEqAbs(v.z, back.z, 0.0002);
+}
+
+test "Ease.outQuart: boundary values" {
+    // f(0) = 0, f(1) = 1 — required for all standard easing functions.
+    try std.testing.expectApproxEqAbs(@as(f32, 0.0), Ease.outQuart(0.0), 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 1.0), Ease.outQuart(1.0), 0.0001);
+}
+
+test "Ease.outQuart: midpoint is greater than linear" {
+    // Ease-out is fast at the start, so f(0.5) > 0.5 (above the linear diagonal).
+    try std.testing.expect(Ease.outQuart(0.5) > 0.5);
+}
+
+test "Ease.outQuart: monotonically increasing" {
+    // Verify f is strictly increasing across the [0, 1] domain.
+    var prev: f32 = Ease.outQuart(0.0);
+    var i: u32 = 1;
+    while (i <= 10) : (i += 1) {
+        const t = @as(f32, @floatFromInt(i)) / 10.0;
+        const cur = Ease.outQuart(t);
+        try std.testing.expect(cur > prev);
+        prev = cur;
+    }
+}
+
+test "Ease.outQuart: known value at t=0.5" {
+    // f(0.5) = 1 − (0.5)⁴ = 1 − 0.0625 = 0.9375
+    try std.testing.expectApproxEqAbs(@as(f32, 0.9375), Ease.outQuart(0.5), 0.0001);
 }
