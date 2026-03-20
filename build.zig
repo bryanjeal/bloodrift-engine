@@ -27,21 +27,21 @@ pub fn build(b: *std.Build) void {
     });
     const vulkan_module = vulkan_dep.module("vulkan-zig");
 
-    // Compile triangle shaders to SPIR-V using glslc.
+    // Compile entity shaders to SPIR-V using glslc.
     const glslc_path = std.fmt.allocPrint(b.allocator, "{s}/bin/glslc", .{vulkan_sdk}) catch @panic("OOM");
-    const vert_spv = compileShader(b, glslc_path, "src/renderer/shaders/triangle.vert");
-    const frag_spv = compileShader(b, glslc_path, "src/renderer/shaders/triangle.frag");
+    const vert_spv = compileShader(b, glslc_path, "src/renderer/shaders/entity.vert");
+    const frag_spv = compileShader(b, glslc_path, "src/renderer/shaders/entity.frag");
 
     // Wrap each SPIR-V file in a tiny Zig module that exposes it via @embedFile.
     const shader_wf = b.addWriteFiles();
     const vert_wrapper = shader_wf.add("vert_spv.zig",
-        \\pub const bytes = @embedFile("triangle.vert.spv");
+        \\pub const bytes = @embedFile("entity.vert.spv");
     );
     const frag_wrapper = shader_wf.add("frag_spv.zig",
-        \\pub const bytes = @embedFile("triangle.frag.spv");
+        \\pub const bytes = @embedFile("entity.frag.spv");
     );
-    _ = shader_wf.addCopyFile(vert_spv, "triangle.vert.spv");
-    _ = shader_wf.addCopyFile(frag_spv, "triangle.frag.spv");
+    _ = shader_wf.addCopyFile(vert_spv, "entity.vert.spv");
+    _ = shader_wf.addCopyFile(frag_spv, "entity.frag.spv");
 
     const vert_module = b.createModule(.{ .root_source_file = vert_wrapper });
     const frag_module = b.createModule(.{ .root_source_file = frag_wrapper });

@@ -34,7 +34,16 @@ pub fn init(
 ) !PipelineState {
     const render_pass = try createRenderPass(vkd, device, swapchain_format);
     errdefer vkd.destroyRenderPass(device, render_pass, null);
-    const layout = try vkd.createPipelineLayout(device, &.{}, null);
+    const push_range = vk.PushConstantRange{
+        .stage_flags = .{ .vertex_bit = true },
+        .offset = 0,
+        // 96 bytes: VP matrix (64B) + model_pos (12B) + pad (4B) + color (16B).
+        .size = 96,
+    };
+    const layout = try vkd.createPipelineLayout(device, &.{
+        .push_constant_range_count = 1,
+        .p_push_constant_ranges = @ptrCast(&push_range),
+    }, null);
     errdefer vkd.destroyPipelineLayout(device, layout, null);
     const handle = try createGraphicsPipeline(vkd, device, render_pass, layout, extent);
     return .{ .render_pass = render_pass, .layout = layout, .handle = handle };
@@ -125,7 +134,23 @@ fn createGraphicsPipeline(
         .{ .stage = .{ .vertex_bit = true }, .module = vert_module, .p_name = "main" },
         .{ .stage = .{ .fragment_bit = true }, .module = frag_module, .p_name = "main" },
     };
-    const vertex_input = vk.PipelineVertexInputStateCreateInfo{};
+    const vertex_binding = vk.VertexInputBindingDescription{
+        .binding = 0,
+        .stride = 2 * @sizeOf(f32), // vec2 position per vertex
+        .input_rate = .vertex,
+    };
+    const vertex_attrib = vk.VertexInputAttributeDescription{
+        .location = 0,
+        .binding = 0,
+        .format = .r32g32_sfloat,
+        .offset = 0,
+    };
+    const vertex_input = vk.PipelineVertexInputStateCreateInfo{
+        .vertex_binding_description_count = 1,
+        .p_vertex_binding_descriptions = @ptrCast(&vertex_binding),
+        .vertex_attribute_description_count = 1,
+        .p_vertex_attribute_descriptions = @ptrCast(&vertex_attrib),
+    };
     const input_assembly = vk.PipelineInputAssemblyStateCreateInfo{
         .topology = .triangle_list,
         .primitive_restart_enable = vk.FALSE,
@@ -149,7 +174,8 @@ fn createGraphicsPipeline(
         .depth_clamp_enable = vk.FALSE,
         .rasterizer_discard_enable = vk.FALSE,
         .polygon_mode = .fill,
-        .cull_mode = .{ .back_bit = true },
+        // Culling disabled for M8 — winding order validated with camera in M9.
+        .cull_mode = .{},
         .front_face = .clockwise,
         .depth_bias_enable = vk.FALSE,
         .depth_bias_constant_factor = 0,
