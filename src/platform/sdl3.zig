@@ -112,11 +112,16 @@ pub const InputSnapshot = struct {
 ///
 /// Returns false if the application should quit (window close or Escape key),
 /// true if the loop should continue. The snap.quit field is also set.
-pub fn pollEvents(snap: *InputSnapshot) bool {
+///
+/// event_hook is called for every SDL event before platform handling.
+/// Pass null to disable. Intended for ImGui event forwarding
+/// (zgui.backend.processEvent) or other per-event listeners.
+pub fn pollEvents(snap: *InputSnapshot, event_hook: ?*const fn (*const anyopaque) void) bool {
     // Drain all pending events. We only care about quit here; keyboard state
     // is read in bulk below via getKeyboardState().
     var event: sdl.Event = undefined;
     while (sdl.pollEvent(&event)) {
+        if (event_hook) |hook| hook(@ptrCast(&event));
         if (event.type == .quit) {
             snap.quit = true;
         }
