@@ -20,6 +20,22 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // zgui (Dear ImGui) — SDL3 + Vulkan backend for debug overlays.
+    const vulkan_include_path = std.fmt.allocPrint(b.allocator, "{s}/include", .{vulkan_sdk}) catch @panic("OOM");
+    const zgui_dep = b.dependency("zgui", .{
+        .target = target,
+        .optimize = optimize,
+        .backend = .sdl3_vulkan,
+        .vulkan_include = vulkan_include_path,
+    });
+    const zgui_module = zgui_dep.module("root");
+    const imgui_lib = zgui_dep.artifact("imgui");
+    // SDL3 C headers needed by imgui_impl_sdl3.cpp on macOS (Homebrew install).
+    switch (target.result.os.tag) {
+        .macos => imgui_lib.addSystemIncludePath(.{ .cwd_relative = "/usr/local/opt/sdl3/include" }),
+        else => {},
+    }
+
     // Vulkan bindings (generates idiomatic Zig from vk.xml at build time).
     const registry_path = std.fmt.allocPrint(b.allocator, "{s}/share/vulkan/registry/vk.xml", .{vulkan_sdk}) catch @panic("OOM");
     const vulkan_dep = b.dependency("vulkan", .{
@@ -27,21 +43,21 @@ pub fn build(b: *std.Build) void {
     });
     const vulkan_module = vulkan_dep.module("vulkan-zig");
 
-    // Compile triangle shaders to SPIR-V using glslc.
+    // Compile entity shaders to SPIR-V using glslc.
     const glslc_path = std.fmt.allocPrint(b.allocator, "{s}/bin/glslc", .{vulkan_sdk}) catch @panic("OOM");
-    const vert_spv = compileShader(b, glslc_path, "src/renderer/shaders/triangle.vert");
-    const frag_spv = compileShader(b, glslc_path, "src/renderer/shaders/triangle.frag");
+    const vert_spv = compileShader(b, glslc_path, "src/renderer/shaders/entity.vert");
+    const frag_spv = compileShader(b, glslc_path, "src/renderer/shaders/entity.frag");
 
     // Wrap each SPIR-V file in a tiny Zig module that exposes it via @embedFile.
     const shader_wf = b.addWriteFiles();
     const vert_wrapper = shader_wf.add("vert_spv.zig",
-        \\pub const bytes = @embedFile("triangle.vert.spv");
+        \\pub const bytes = @embedFile("entity.vert.spv");
     );
     const frag_wrapper = shader_wf.add("frag_spv.zig",
-        \\pub const bytes = @embedFile("triangle.frag.spv");
+        \\pub const bytes = @embedFile("entity.frag.spv");
     );
-    _ = shader_wf.addCopyFile(vert_spv, "triangle.vert.spv");
-    _ = shader_wf.addCopyFile(frag_spv, "triangle.frag.spv");
+    _ = shader_wf.addCopyFile(vert_spv, "entity.vert.spv");
+    _ = shader_wf.addCopyFile(frag_spv, "entity.frag.spv");
 
     const vert_module = b.createModule(.{ .root_source_file = vert_wrapper });
     const frag_module = b.createModule(.{ .root_source_file = frag_wrapper });
@@ -57,6 +73,7 @@ pub fn build(b: *std.Build) void {
     engine_module.addImport("vulkan", vulkan_module);
     engine_module.addImport("vert_spv", vert_module);
     engine_module.addImport("frag_spv", frag_module);
+    engine_module.addImport("zgui", zgui_module);
     addSdl3IncludePaths(engine_module, target.result.os.tag);
 
     // Engine tests.
@@ -70,12 +87,14 @@ pub fn build(b: *std.Build) void {
     test_module.addImport("vulkan", vulkan_module);
     test_module.addImport("vert_spv", vert_module);
     test_module.addImport("frag_spv", frag_module);
+    test_module.addImport("zgui", zgui_module);
     addSdl3IncludePaths(test_module, target.result.os.tag);
 
     const engine_tests = b.addTest(.{
         .root_module = test_module,
     });
     engine_tests.linkLibrary(zflecs.artifact("flecs"));
+    engine_tests.linkLibrary(imgui_lib);
     linkSdl3(engine_tests);
     linkVulkan(engine_tests, vulkan_sdk);
 
