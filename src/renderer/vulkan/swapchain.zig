@@ -92,12 +92,14 @@ fn choosePresentMode(
     surface: vk.SurfaceKHR,
     allocator: std.mem.Allocator,
 ) !vk.PresentModeKHR {
-    const modes = try vki.getPhysicalDeviceSurfacePresentModesAllocKHR(physical, surface, allocator);
-    defer allocator.free(modes);
-    for (modes) |m| {
-        if (m == .mailbox_khr) return m;
-    }
-    return .fifo_khr; // guaranteed to be present
+    // fifo_khr (VSync) is guaranteed on all conformant Vulkan drivers.
+    // mailbox_khr (triple-buffer, no VSync) causes tearing on MoltenVK and
+    // irregular frame cadence that manifests as visible shape deformation.
+    _ = vki;
+    _ = physical;
+    _ = surface;
+    _ = allocator;
+    return .fifo_khr;
 }
 
 fn chooseExtent(caps: vk.SurfaceCapabilitiesKHR, width: u32, height: u32) vk.Extent2D {
