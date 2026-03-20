@@ -174,8 +174,8 @@ fn createGraphicsPipeline(
         .depth_clamp_enable = vk.FALSE,
         .rasterizer_discard_enable = vk.FALSE,
         .polygon_mode = .fill,
-        // Culling disabled for M8 — winding order validated with camera in M9.
-        .cull_mode = .{},
+        // Back-face culling enabled — quads use clockwise winding order (validated in M9).
+        .cull_mode = .{ .back_bit = true },
         .front_face = .clockwise,
         .depth_bias_enable = vk.FALSE,
         .depth_bias_constant_factor = 0,
