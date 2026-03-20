@@ -12,6 +12,9 @@ pub const platform = @import("platform/root.zig");
 
 pub const renderer = @import("renderer/root.zig");
 
+/// Dear ImGui bindings — re-exported so game code can use `@import("engine").zgui`.
+pub const zgui = @import("zgui");
+
 // Subsystems added as they are implemented:
 // pub const physics  = @import("physics/root.zig");
 // pub const audio    = @import("audio/root.zig");

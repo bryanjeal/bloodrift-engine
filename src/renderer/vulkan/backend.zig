@@ -8,6 +8,7 @@
 
 const std = @import("std");
 const vk = @import("vulkan");
+const zgui = @import("zgui");
 const renderer_mod = @import("../renderer.zig");
 const instance_mod = @import("instance.zig");
 const device_mod = @import("device.zig");
@@ -49,6 +50,7 @@ pub const VulkanBackend = struct {
     commands: commands_mod.CommandState,
     vertex_buffer: vk.Buffer,
     vertex_buffer_memory: vk.DeviceMemory,
+    imgui_descriptor_pool: vk.DescriptorPool,
     // Per-frame state (valid between beginFrame and present).
     current_frame: u32,
     current_image: u32,
@@ -110,6 +112,28 @@ pub const VulkanBackend = struct {
             commands_mod.deinit(&cmds_copy, dev.vkd, dev.handle);
         }
         const vb = try createVertexBuffer(inst.vki, dev.vkd, dev.handle, dev.physical);
+        const imgui_pool = try createImguiDescriptorPool(dev.vkd, dev.handle);
+        errdefer dev.vkd.destroyDescriptorPool(dev.handle, imgui_pool, null);
+
+        // Dear ImGui — SDL3 + Vulkan backend.
+        // VK_NO_PROTOTYPES is set by zgui's build, so we must provide a function
+        // loader before calling backend.init.
+        zgui.init(allocator);
+        const instance_ptr: ?*anyopaque = @ptrFromInt(@intFromEnum(inst.handle));
+        _ = zgui.backend.loadFunctions(@bitCast(vk.API_VERSION_1_2), imguiVkLoader, instance_ptr);
+        zgui.backend.init(.{
+            .api_version = @bitCast(vk.API_VERSION_1_2),
+            .instance = @ptrFromInt(@intFromEnum(inst.handle)),
+            .physical_device = @ptrFromInt(@intFromEnum(dev.physical)),
+            .device = @ptrFromInt(@intFromEnum(dev.handle)),
+            .queue_family = dev.families.graphics,
+            .queue = @ptrFromInt(@intFromEnum(dev.graphics_queue)),
+            .descriptor_pool = @ptrFromInt(@intFromEnum(imgui_pool)),
+            .render_pass = @ptrFromInt(@intFromEnum(pip.render_pass)),
+            .min_image_count = commands_mod.MAX_FRAMES_IN_FLIGHT,
+            .image_count = @intCast(sc.image_views.len),
+        }, @ptrCast(window));
+
         return .{
             .allocator = allocator,
             .surface = surface,
@@ -120,6 +144,7 @@ pub const VulkanBackend = struct {
             .commands = cmds,
             .vertex_buffer = vb.buffer,
             .vertex_buffer_memory = vb.memory,
+            .imgui_descriptor_pool = imgui_pool,
             .current_frame = 0,
             .current_image = 0,
             .current_vp = [_]f32{0} ** 16,
@@ -128,6 +153,9 @@ pub const VulkanBackend = struct {
 
     pub fn deinit(self: *VulkanBackend) void {
         _ = self.device.vkd.deviceWaitIdle(self.device.handle) catch {};
+        zgui.backend.deinit();
+        zgui.deinit();
+        self.device.vkd.destroyDescriptorPool(self.device.handle, self.imgui_descriptor_pool, null);
         commands_mod.deinit(&self.commands, self.device.vkd, self.device.handle);
         pipeline_mod.deinit(&self.pipeline, self.device.vkd, self.device.handle);
         self.device.vkd.destroyBuffer(self.device.handle, self.vertex_buffer, null);
@@ -151,6 +179,8 @@ pub const VulkanBackend = struct {
 
     pub fn beginFrame(self: *VulkanBackend, camera: renderer_mod.CameraData) !void {
         self.current_vp = camera.vp;
+        // Start a new ImGui frame before any draw commands.
+        zgui.backend.newFrame(self.swapchain.extent.width, self.swapchain.extent.height);
         const frame = self.current_frame;
         const sync = &self.commands.sync[frame];
         const dev = self.device.handle;
@@ -197,6 +227,8 @@ pub const VulkanBackend = struct {
         const frame = self.current_frame;
         const vkd = self.device.vkd;
         const cmd = self.commands.buffers[frame];
+        // Render ImGui draw data inside the render pass (after all game draws).
+        zgui.backend.render(@ptrFromInt(@intFromEnum(cmd)));
         vkd.cmdEndRenderPass(cmd);
         try vkd.endCommandBuffer(cmd);
         const wait_stage = vk.PipelineStageFlags{ .color_attachment_output_bit = true };
@@ -251,6 +283,38 @@ pub const VulkanBackend = struct {
         return @enumFromInt(@intFromPtr(raw_surface));
     }
 };
+
+// ============================================================================
+// Dear ImGui helpers
+// ============================================================================
+
+/// Create a small descriptor pool for ImGui's font texture atlas.
+fn createImguiDescriptorPool(vkd: vk.DeviceWrapper, device: vk.Device) !vk.DescriptorPool {
+    const pool_size = vk.DescriptorPoolSize{
+        .type = .combined_image_sampler,
+        .descriptor_count = 1,
+    };
+    return vkd.createDescriptorPool(device, &.{
+        .flags = .{ .free_descriptor_set_bit = true },
+        .max_sets = 1,
+        .pool_size_count = 1,
+        .p_pool_sizes = @ptrCast(&pool_size),
+    }, null);
+}
+
+/// Vulkan function loader shim for Dear ImGui (required because zgui uses
+/// VK_NO_PROTOTYPES — Vulkan symbols are not statically linked).
+/// user_data carries the VkInstance pointer; SDL provides the proc address.
+fn imguiVkLoader(
+    name: [*:0]const u8,
+    user_data: ?*anyopaque,
+) callconv(.c) ?*anyopaque {
+    const raw = c.SDL_Vulkan_GetVkGetInstanceProcAddr() orelse return null;
+    // vkGetInstanceProcAddr signature: fn(VkInstance, name) -> PFN_vkVoidFunction.
+    // We treat both the instance and the return value as opaque pointers.
+    const get_proc: *const fn (?*anyopaque, [*:0]const u8) callconv(.c) ?*anyopaque = @ptrCast(raw);
+    return get_proc(user_data, name);
+}
 
 // ============================================================================
 // Vertex buffer helpers
