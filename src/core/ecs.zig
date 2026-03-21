@@ -154,6 +154,35 @@ pub const World = struct {
         std.debug.assert(types.entity_id_valid(base));
         zflecs.add_pair(self.raw, entity, zflecs.IsA, base);
     }
+
+    /// Iterate all entities that have component T, calling cb for each.
+    ///
+    /// ctx is passed through to cb unchanged — use a pointer to local state
+    /// to capture variables without heap allocation. Prefab entities are
+    /// excluded by Flecs and will not be visited.
+    /// Iterate all entities that have component T, calling cb for each.
+    ///
+    /// ctx is passed through to cb unchanged — use a pointer to local state
+    /// to capture variables without heap allocation. Prefab entities (those
+    /// with EcsPrefab) are excluded and will not be visited.
+    pub fn each(
+        self: *World,
+        comptime T: type,
+        ctx: *anyopaque,
+        cb: *const fn (ctx: *anyopaque, entity: EntityId, comp: *const T) void,
+    ) void {
+        var it = zflecs.each(self.raw, T);
+        while (zflecs.each_next(&it)) {
+            const comps = zflecs.field(&it, T, 0) orelse continue;
+            const ents = it.entities();
+            std.debug.assert(comps.len == ents.len);
+            for (ents, comps) |entity, *comp| {
+                // Skip prefab entities — they are templates, not live game entities.
+                if (zflecs.has_id(self.raw, entity, zflecs.Prefab)) continue;
+                cb(ctx, entity, comp);
+            }
+        }
+    }
 };
 
 // ============================================================================
@@ -314,6 +343,84 @@ test "World: newPrefab and addIsA inheritance" {
     world.setComponent(instance, TestPosition, .{ .x = 1, .y = 2 });
     const prefab_pos = world.getComponent(prefab, TestPosition).?;
     try std.testing.expectEqual(@as(i64, 42), prefab_pos.x);
+}
+
+// ============================================================================
+// World.each() tests
+// ============================================================================
+
+// Context struct used by each() tests to collect visited entities.
+const EachCtx = struct {
+    visited: u32,
+    last_entity: EntityId,
+    last_x: i64,
+};
+
+fn eachTestCallback(ctx: *anyopaque, entity: EntityId, comp: *const TestPosition) void {
+    const c: *EachCtx = @ptrCast(@alignCast(ctx));
+    c.visited += 1;
+    c.last_entity = entity;
+    c.last_x = comp.x;
+}
+
+test "World.each: empty world — cb never called" {
+    var world = World.init();
+    defer world.deinit();
+
+    world.registerComponent(TestPosition);
+
+    var ctx = EachCtx{ .visited = 0, .last_entity = 0, .last_x = 0 };
+    world.each(TestPosition, @ptrCast(&ctx), eachTestCallback);
+    try std.testing.expectEqual(@as(u32, 0), ctx.visited);
+}
+
+test "World.each: one entity — cb called once with correct data" {
+    var world = World.init();
+    defer world.deinit();
+
+    world.registerComponent(TestPosition);
+    const e = world.newEntity();
+    world.setComponent(e, TestPosition, .{ .x = 42, .y = -7 });
+
+    var ctx = EachCtx{ .visited = 0, .last_entity = 0, .last_x = 0 };
+    world.each(TestPosition, @ptrCast(&ctx), eachTestCallback);
+
+    try std.testing.expectEqual(@as(u32, 1), ctx.visited);
+    try std.testing.expectEqual(e, ctx.last_entity);
+    try std.testing.expectEqual(@as(i64, 42), ctx.last_x);
+}
+
+test "World.each: N entities — cb called N times" {
+    var world = World.init();
+    defer world.deinit();
+
+    world.registerComponent(TestPosition);
+
+    const n: u32 = 8;
+    for (0..n) |i| {
+        const e = world.newEntity();
+        world.setComponent(e, TestPosition, .{ .x = @intCast(i), .y = 0 });
+    }
+
+    var ctx = EachCtx{ .visited = 0, .last_entity = 0, .last_x = 0 };
+    world.each(TestPosition, @ptrCast(&ctx), eachTestCallback);
+    try std.testing.expectEqual(n, ctx.visited);
+}
+
+test "World.each: entity without T is not visited" {
+    var world = World.init();
+    defer world.deinit();
+
+    world.registerComponent(TestPosition);
+    world.registerComponent(TestVelocity);
+
+    // Only add TestVelocity — no TestPosition.
+    const e = world.newEntity();
+    world.setComponent(e, TestVelocity, .{ .vx = 1, .vy = 2 });
+
+    var ctx = EachCtx{ .visited = 0, .last_entity = 0, .last_x = 0 };
+    world.each(TestPosition, @ptrCast(&ctx), eachTestCallback);
+    try std.testing.expectEqual(@as(u32, 0), ctx.visited);
 }
 
 test "World: create and delete many entities" {
