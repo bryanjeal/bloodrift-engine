@@ -87,10 +87,10 @@ pub const FVec3 = struct {
         return FP.sqrt(a.len_sq());
     }
 
-    /// Normalize to unit length. Asserts the vector is non-zero.
+    /// Normalize to unit length. Returns FVec3.zero for the zero vector.
     pub fn normalize(a: FVec3) FVec3 {
         const l = a.len();
-        std.debug.assert(l.raw != 0);
+        if (l.raw == 0) return FVec3.zero;
         return a.scale(FP.one.div(l));
     }
 
@@ -169,6 +169,24 @@ pub const FQuat = struct {
         };
     }
 };
+
+// ============================================================================
+// Integer math utilities — deterministic, platform-independent
+// ============================================================================
+
+/// Integer square root: returns floor(sqrt(n)).
+/// Uses Newton-Raphson iteration — fully deterministic on all platforms.
+/// isqrt(0) == 0.
+pub fn isqrt(n: u64) u64 {
+    if (n == 0) return 0;
+    var x: u64 = n;
+    var r: u64 = (x + 1) >> 1;
+    while (r < x) {
+        x = r;
+        r = (x + n / x) >> 1;
+    }
+    return x;
+}
 
 // ============================================================================
 // Rendering types — hardware float (f32), non-deterministic
@@ -796,6 +814,35 @@ test "Mat4f: ptr returns pointer to first element" {
     const p = m.ptr();
     // First element of column-major identity is 1.0.
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), p.*, 0.001);
+}
+
+test "isqrt: edge cases" {
+    try std.testing.expectEqual(@as(u64, 0), isqrt(0));
+    try std.testing.expectEqual(@as(u64, 1), isqrt(1));
+    try std.testing.expectEqual(@as(u64, 1), isqrt(3)); // floor(sqrt(3)) = 1
+    try std.testing.expectEqual(@as(u64, 2), isqrt(4));
+    try std.testing.expectEqual(@as(u64, 3), isqrt(9));
+    try std.testing.expectEqual(@as(u64, 10), isqrt(100));
+    // isqrt is a floor: sqrt(99) ≈ 9.949, floor = 9
+    try std.testing.expectEqual(@as(u64, 9), isqrt(99));
+    try std.testing.expectEqual(@as(u64, 3), isqrt(15)); // floor(sqrt(15)) = 3
+}
+
+test "FVec3: normalize — zero vector returns zero" {
+    // Zero vector must not divide by zero; must return FVec3.zero.
+    const result = FVec3.zero.normalize();
+    try std.testing.expect(FVec3.zero.eql(result));
+}
+
+test "FVec3: normalize — (3, 4, 0) yields unit vector" {
+    // Pythagorean triple: |(3,4,0)| = 5. Unit vector ≈ (0.6, 0.8, 0).
+    const v = FVec3.fromInts(3, 4, 0);
+    const n = v.normalize();
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), n.len().toF64(), 0.01);
+    // Direction should point mostly in x and y.
+    try std.testing.expect(n.x.raw > 0);
+    try std.testing.expect(n.y.raw > 0);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), n.z.toF64(), 0.01);
 }
 
 test "Quatf: mul — identity absorbs" {
