@@ -18,7 +18,7 @@
 
 const std = @import("std");
 const fp_mod = @import("fixed_point.zig");
-const FP = fp_mod.FP;
+const Fp16 = fp_mod.Fp16;
 
 /// A deterministic PRNG instance. Zero-initialize is not valid; use init().
 pub const Rng = struct {
@@ -85,21 +85,21 @@ pub const Rng = struct {
 
     /// Return a fixed-point value uniformly distributed in [0, 1).
     /// The result has Q16.16 precision.
-    pub fn nextFP(self: *Rng) FP {
+    pub fn nextFP(self: *Rng) Fp16 {
         // Take the top 32 bits of the output, then shift down to 16 fractional bits.
         const r = self.next() >> 32;
         // r is in [0, 2^32). Divide by 2^32 to get [0, 1) in Q16.16:
-        // result.raw = r * FP.scale / 2^32 = r >> 16.
-        return FP.fromRaw(@intCast(r >> 16));
+        // result.raw = r * Fp16.scale / 2^32 = r >> 16.
+        return Fp16.fromRaw(@intCast(r >> 16));
     }
 
     /// Return a fixed-point value uniformly distributed in [lo, hi).
-    pub fn nextFPRange(self: *Rng, lo: FP, hi: FP) FP {
+    pub fn nextFPRange(self: *Rng, lo: Fp16, hi: Fp16) Fp16 {
         std.debug.assert(lo.raw <= hi.raw);
         const span_raw = hi.raw - lo.raw;
         if (span_raw == 0) return lo;
         const unit = self.nextFP(); // in [0, 1)
-        const offset = FP.mul(unit, FP.fromRaw(span_raw));
+        const offset = Fp16.mul(unit, Fp16.fromRaw(span_raw));
         return lo.add(offset);
     }
 
@@ -156,7 +156,7 @@ test "Rng: nextFP in [0, 1)" {
     for (0..10_000) |_| {
         const v = rng.nextFP();
         try std.testing.expect(v.raw >= 0);
-        try std.testing.expect(v.lt(FP.one));
+        try std.testing.expect(v.lt(Fp16.one));
     }
 }
 
@@ -212,8 +212,8 @@ test "Rng: nextIntRange lo == hi returns lo" {
 
 test "Rng: nextFPRange stays within [lo, hi)" {
     var rng = Rng.init(0x5A5A5A5A);
-    const lo = FP.fromInt(2);
-    const hi = FP.fromInt(5);
+    const lo = Fp16.fromInt(2);
+    const hi = Fp16.fromInt(5);
     for (0..10_000) |_| {
         const v = rng.nextFPRange(lo, hi);
         try std.testing.expect(v.raw >= lo.raw);
@@ -223,7 +223,7 @@ test "Rng: nextFPRange stays within [lo, hi)" {
 
 test "Rng: nextFPRange lo == hi returns lo" {
     var rng = Rng.init(0xBEEF);
-    const lo = FP.fromInt(3);
+    const lo = Fp16.fromInt(3);
     for (0..100) |_| {
         const v = rng.nextFPRange(lo, lo);
         try std.testing.expectEqual(lo.raw, v.raw);

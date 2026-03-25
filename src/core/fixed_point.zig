@@ -226,14 +226,14 @@ const sin_table: [sin_table_size]i32 = blk: {
 };
 
 // Public fixed-point type used for angles (Q16.16).
-pub const FP = FixedPoint(16);
+pub const Fp16 = FixedPoint(16);
 
 /// Fixed-point sin using the lookup table with linear interpolation.
-/// Input: angle in radians as FP (Q16.16).
-/// Output: result in [-1, 1] as FP (Q16.16).
-pub fn sin(angle: FP) FP {
+/// Input: angle in radians as Fp16 (Q16.16).
+/// Output: result in [-1, 1] as Fp16 (Q16.16).
+pub fn sin(angle: Fp16) Fp16 {
     // Normalize angle to [0, 2π).
-    const two_pi = FP.fromFloat(2.0 * std.math.pi);
+    const two_pi = Fp16.fromFloat(2.0 * std.math.pi);
     var a = angle;
     // Reduce to [0, 2π) by repeated subtraction/addition.
     // This is safe for reasonable angle ranges (avoids division).
@@ -244,25 +244,25 @@ pub fn sin(angle: FP) FP {
     // index_fp = a * sin_table_size / (2π), stored as fixed-point so integer
     // part = table index, fractional part = interpolation weight.
     const table_fp_raw: i64 = @intCast(
-        @divTrunc(@as(i128, a.raw) * sin_table_size * FP.scale, @as(i128, two_pi.raw)),
+        @divTrunc(@as(i128, a.raw) * sin_table_size * Fp16.scale, @as(i128, two_pi.raw)),
     );
-    const idx0: usize = @intCast(@mod(@divTrunc(table_fp_raw, FP.scale), sin_table_size));
+    const idx0: usize = @intCast(@mod(@divTrunc(table_fp_raw, Fp16.scale), sin_table_size));
     const idx1: usize = (idx0 + 1) % sin_table_size;
-    const frac_part: i64 = @mod(table_fp_raw, FP.scale);
+    const frac_part: i64 = @mod(table_fp_raw, Fp16.scale);
 
     // Linear interpolation between table[idx0] and table[idx1].
     const v0: i64 = sin_table[idx0];
     const v1: i64 = sin_table[idx1];
-    const interp: i64 = v0 + @divTrunc((v1 - v0) * frac_part, FP.scale);
+    const interp: i64 = v0 + @divTrunc((v1 - v0) * frac_part, Fp16.scale);
 
     // Table is Q0.16 (scale 65536). We need Q16.16.
-    // interp is already in 65536-scaled units, matching FP.scale for FP=Q16.16.
-    return FP.fromRaw(interp);
+    // interp is already in 65536-scaled units, matching Fp16.scale for Fp16=Q16.16.
+    return Fp16.fromRaw(interp);
 }
 
 /// Fixed-point cos. cos(x) = sin(x + π/2).
-pub fn cos(angle: FP) FP {
-    return sin(angle.add(FP.fromFloat(std.math.pi / 2.0)));
+pub fn cos(angle: Fp16) Fp16 {
+    return sin(angle.add(Fp16.fromFloat(std.math.pi / 2.0)));
 }
 
 // ----------------------------------------------------------------------------
@@ -339,32 +339,32 @@ test "FixedPoint: different FracBits are independent types" {
 }
 
 test "sin: sin(0) == 0" {
-    const result = sin(FP.zero);
+    const result = sin(Fp16.zero);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), result.toF64(), 0.001);
 }
 
 test "sin: sin(π/2) == 1" {
-    const result = sin(FP.fromFloat(std.math.pi / 2.0));
+    const result = sin(Fp16.fromFloat(std.math.pi / 2.0));
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.toF64(), 0.001);
 }
 
 test "sin: sin(π) ≈ 0" {
-    const result = sin(FP.fromFloat(std.math.pi));
+    const result = sin(Fp16.fromFloat(std.math.pi));
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), result.toF64(), 0.001);
 }
 
 test "sin: sin(3π/2) == -1" {
-    const result = sin(FP.fromFloat(3.0 * std.math.pi / 2.0));
+    const result = sin(Fp16.fromFloat(3.0 * std.math.pi / 2.0));
     try std.testing.expectApproxEqAbs(@as(f64, -1.0), result.toF64(), 0.001);
 }
 
 test "cos: cos(0) == 1" {
-    const result = cos(FP.zero);
+    const result = cos(Fp16.zero);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), result.toF64(), 0.001);
 }
 
 test "cos: cos(π) == -1" {
-    const result = cos(FP.fromFloat(std.math.pi));
+    const result = cos(Fp16.fromFloat(std.math.pi));
     try std.testing.expectApproxEqAbs(@as(f64, -1.0), result.toF64(), 0.001);
 }
 
@@ -502,22 +502,22 @@ test "FixedPoint: sqrt of larger and small fractional values" {
 
 test "sin: negative angle normalizes correctly" {
     // sin(-π/2) = -1
-    const result = sin(FP.fromFloat(-std.math.pi / 2.0));
+    const result = sin(Fp16.fromFloat(-std.math.pi / 2.0));
     try std.testing.expectApproxEqAbs(@as(f64, -1.0), result.toF64(), 0.001);
     // sin(-π) ≈ 0
-    const result2 = sin(FP.fromFloat(-std.math.pi));
+    const result2 = sin(Fp16.fromFloat(-std.math.pi));
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), result2.toF64(), 0.001);
 }
 
 test "sin: arbitrary angle (π/4)" {
     // sin(π/4) = √2/2 ≈ 0.7071
-    const result = sin(FP.fromFloat(std.math.pi / 4.0));
+    const result = sin(Fp16.fromFloat(std.math.pi / 4.0));
     try std.testing.expectApproxEqAbs(@as(f64, std.math.sqrt2 / 2.0), result.toF64(), 0.001);
 }
 
 test "cos: arbitrary angle (π/3)" {
     // cos(π/3) = 0.5
-    const result = cos(FP.fromFloat(std.math.pi / 3.0));
+    const result = cos(Fp16.fromFloat(std.math.pi / 3.0));
     try std.testing.expectApproxEqAbs(@as(f64, 0.5), result.toF64(), 0.001);
 }
 
@@ -525,8 +525,8 @@ test "sin/cos: Pythagorean identity sin²+cos²=1" {
     // For several angles, sin²(θ) + cos²(θ) should equal 1.
     const angles = [_]f64{ 0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0 };
     for (angles) |a| {
-        const s = sin(FP.fromFloat(a));
-        const c = cos(FP.fromFloat(a));
+        const s = sin(Fp16.fromFloat(a));
+        const c = cos(Fp16.fromFloat(a));
         const identity = s.mul(s).add(c.mul(c));
         try std.testing.expectApproxEqAbs(@as(f64, 1.0), identity.toF64(), 0.002);
     }

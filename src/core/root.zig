@@ -5,7 +5,7 @@
 //
 //   const core = @import("engine").core;
 //   const EntityId = core.types.EntityId;
-//   const FP = core.fixed_point.FP;
+//   const Fp16 = core.fixed_point.Fp16;
 //   const FVec3 = core.math.FVec3;
 
 pub const types = @import("types.zig");

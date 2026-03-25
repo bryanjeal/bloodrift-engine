@@ -22,7 +22,7 @@
 
 const std = @import("std");
 const fp_mod = @import("fixed_point.zig");
-const FP = fp_mod.FP; // FixedPoint(16) — Q16.16
+const Fp16 = fp_mod.Fp16; // FixedPoint(16) — Q16.16
 
 // ============================================================================
 // Simulation types — fixed-point, deterministic
@@ -31,22 +31,22 @@ const FP = fp_mod.FP; // FixedPoint(16) — Q16.16
 /// 3D vector with Q16.16 fixed-point components. Used for all entity positions,
 /// velocities, and simulation-side geometry. Must not appear in rendering code.
 pub const FVec3 = struct {
-    x: FP,
-    y: FP,
-    z: FP,
+    x: Fp16,
+    y: Fp16,
+    z: Fp16,
 
-    pub const zero: FVec3 = .{ .x = FP.zero, .y = FP.zero, .z = FP.zero };
-    pub const one: FVec3 = .{ .x = FP.one, .y = FP.one, .z = FP.one };
-    pub const unit_x: FVec3 = .{ .x = FP.one, .y = FP.zero, .z = FP.zero };
-    pub const unit_y: FVec3 = .{ .x = FP.zero, .y = FP.one, .z = FP.zero };
-    pub const unit_z: FVec3 = .{ .x = FP.zero, .y = FP.zero, .z = FP.one };
+    pub const zero: FVec3 = .{ .x = Fp16.zero, .y = Fp16.zero, .z = Fp16.zero };
+    pub const one: FVec3 = .{ .x = Fp16.one, .y = Fp16.one, .z = Fp16.one };
+    pub const unit_x: FVec3 = .{ .x = Fp16.one, .y = Fp16.zero, .z = Fp16.zero };
+    pub const unit_y: FVec3 = .{ .x = Fp16.zero, .y = Fp16.one, .z = Fp16.zero };
+    pub const unit_z: FVec3 = .{ .x = Fp16.zero, .y = Fp16.zero, .z = Fp16.one };
 
-    pub fn init(x: FP, y: FP, z: FP) FVec3 {
+    pub fn init(x: Fp16, y: Fp16, z: Fp16) FVec3 {
         return .{ .x = x, .y = y, .z = z };
     }
 
     pub fn fromInts(x: i64, y: i64, z: i64) FVec3 {
-        return .{ .x = FP.fromInt(x), .y = FP.fromInt(y), .z = FP.fromInt(z) };
+        return .{ .x = Fp16.fromInt(x), .y = Fp16.fromInt(y), .z = Fp16.fromInt(z) };
     }
 
     pub fn add(a: FVec3, b: FVec3) FVec3 {
@@ -57,7 +57,7 @@ pub const FVec3 = struct {
         return .{ .x = a.x.sub(b.x), .y = a.y.sub(b.y), .z = a.z.sub(b.z) };
     }
 
-    pub fn scale(a: FVec3, s: FP) FVec3 {
+    pub fn scale(a: FVec3, s: Fp16) FVec3 {
         return .{ .x = a.x.mul(s), .y = a.y.mul(s), .z = a.z.mul(s) };
     }
 
@@ -65,7 +65,7 @@ pub const FVec3 = struct {
         return .{ .x = a.x.neg(), .y = a.y.neg(), .z = a.z.neg() };
     }
 
-    pub fn dot(a: FVec3, b: FVec3) FP {
+    pub fn dot(a: FVec3, b: FVec3) Fp16 {
         return a.x.mul(b.x).add(a.y.mul(b.y)).add(a.z.mul(b.z));
     }
 
@@ -78,20 +78,20 @@ pub const FVec3 = struct {
     }
 
     /// Squared length. Does not require sqrt.
-    pub fn len_sq(a: FVec3) FP {
+    pub fn len_sq(a: FVec3) Fp16 {
         return a.dot(a);
     }
 
     /// Euclidean length via fixed-point sqrt.
-    pub fn len(a: FVec3) FP {
-        return FP.sqrt(a.len_sq());
+    pub fn len(a: FVec3) Fp16 {
+        return Fp16.sqrt(a.len_sq());
     }
 
     /// Normalize to unit length. Returns FVec3.zero for the zero vector.
     pub fn normalize(a: FVec3) FVec3 {
         const l = a.len();
         if (l.raw == 0) return FVec3.zero;
-        return a.scale(FP.one.div(l));
+        return a.scale(Fp16.one.div(l));
     }
 
     pub fn eql(a: FVec3, b: FVec3) bool {
@@ -112,20 +112,20 @@ pub const FVec3 = struct {
 /// deterministic simulation. Component convention: (x, y, z, w) where w is
 /// the scalar part. Assumed unit quaternion for rotation ops.
 pub const FQuat = struct {
-    x: FP,
-    y: FP,
-    z: FP,
-    w: FP,
+    x: Fp16,
+    y: Fp16,
+    z: Fp16,
+    w: Fp16,
 
     /// The identity quaternion (no rotation).
     pub const identity: FQuat = .{
-        .x = FP.zero,
-        .y = FP.zero,
-        .z = FP.zero,
-        .w = FP.one,
+        .x = Fp16.zero,
+        .y = Fp16.zero,
+        .z = Fp16.zero,
+        .w = Fp16.one,
     };
 
-    pub fn init(x: FP, y: FP, z: FP, w: FP) FQuat {
+    pub fn init(x: Fp16, y: Fp16, z: Fp16, w: Fp16) FQuat {
         return .{ .x = x, .y = y, .z = z, .w = w };
     }
 
@@ -149,7 +149,7 @@ pub const FQuat = struct {
         // Optimized form: v' = v + 2w(q×v) + 2(q×(q×v))
         // where q here refers to the (x,y,z) part of the quaternion.
         const qv = FVec3.init(q.x, q.y, q.z);
-        const t = qv.cross(v).scale(FP.fromInt(2));
+        const t = qv.cross(v).scale(Fp16.fromInt(2));
         const u = qv.cross(t);
         const wt = t.scale(q.w);
         return v.add(wt).add(u);
@@ -260,9 +260,9 @@ pub const Vec3f = struct {
     /// Loses precision; use with care.
     pub fn toFVec3(self: Vec3f) FVec3 {
         return .{
-            .x = FP.fromFloat(self.x),
-            .y = FP.fromFloat(self.y),
-            .z = FP.fromFloat(self.z),
+            .x = Fp16.fromFloat(self.x),
+            .y = Fp16.fromFloat(self.y),
+            .z = Fp16.fromFloat(self.z),
         };
     }
 };
@@ -441,10 +441,10 @@ pub const Quatf = struct {
     /// Convert to simulation FQuat. Call only at the rendering→simulation boundary.
     pub fn toFQuat(self: Quatf) FQuat {
         return .{
-            .x = FP.fromFloat(self.x),
-            .y = FP.fromFloat(self.y),
-            .z = FP.fromFloat(self.z),
-            .w = FP.fromFloat(self.w),
+            .x = Fp16.fromFloat(self.x),
+            .y = Fp16.fromFloat(self.y),
+            .z = Fp16.fromFloat(self.z),
+            .w = Fp16.fromFloat(self.w),
         };
     }
 };
@@ -482,7 +482,7 @@ test "FVec3: dot product" {
     const a = FVec3.fromInts(1, 2, 3);
     const b = FVec3.fromInts(4, 5, 6);
     // 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
-    try std.testing.expect(FP.fromInt(32).eql(a.dot(b)));
+    try std.testing.expect(Fp16.fromInt(32).eql(a.dot(b)));
 }
 
 test "FVec3: cross product" {
@@ -567,14 +567,14 @@ test "FVec3: neg" {
 
 test "FVec3: scale" {
     const a = FVec3.fromInts(2, 4, 6);
-    const s = a.scale(FP.fromFloat(0.5));
+    const s = a.scale(Fp16.fromFloat(0.5));
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), s.x.toF64(), 0.001);
     try std.testing.expectApproxEqAbs(@as(f64, 2.0), s.y.toF64(), 0.001);
     try std.testing.expectApproxEqAbs(@as(f64, 3.0), s.z.toF64(), 0.001);
     // scale by zero yields zero vector
-    try std.testing.expect(FVec3.zero.eql(a.scale(FP.zero)));
+    try std.testing.expect(FVec3.zero.eql(a.scale(Fp16.zero)));
     // scale by one yields same vector
-    try std.testing.expect(a.eql(a.scale(FP.one)));
+    try std.testing.expect(a.eql(a.scale(Fp16.one)));
 }
 
 test "FVec3: len_sq" {
@@ -582,7 +582,7 @@ test "FVec3: len_sq" {
     const a = FVec3.fromInts(3, 4, 0);
     try std.testing.expectApproxEqAbs(@as(f64, 25.0), a.len_sq().toF64(), 0.01);
     // zero vector has len_sq = 0
-    try std.testing.expect(FP.zero.eql(FVec3.zero.len_sq()));
+    try std.testing.expect(Fp16.zero.eql(FVec3.zero.len_sq()));
 }
 
 test "FVec3: eql negative case" {
@@ -594,10 +594,10 @@ test "FVec3: eql negative case" {
 
 test "FQuat: mul — identity is absorbing element" {
     const q = FQuat.init(
-        FP.fromFloat(0.0),
-        FP.fromFloat(0.0),
-        FP.fromFloat(0.7071067811865476),
-        FP.fromFloat(0.7071067811865476),
+        Fp16.fromFloat(0.0),
+        Fp16.fromFloat(0.0),
+        Fp16.fromFloat(0.7071067811865476),
+        Fp16.fromFloat(0.7071067811865476),
     );
     // identity * q == q
     const lhs = FQuat.identity.mul(q);
@@ -613,8 +613,8 @@ test "FQuat: mul — identity is absorbing element" {
 
 test "FQuat: mul — 90° rotations about z compose to 180°" {
     // q90 = 90° about z-axis: (0, 0, sin45°, cos45°)
-    const half_sqrt2 = FP.fromFloat(std.math.sqrt2 / 2.0);
-    const q90 = FQuat.init(FP.zero, FP.zero, half_sqrt2, half_sqrt2);
+    const half_sqrt2 = Fp16.fromFloat(std.math.sqrt2 / 2.0);
+    const q90 = FQuat.init(Fp16.zero, Fp16.zero, half_sqrt2, half_sqrt2);
     // q90 * q90 should be 180° about z: (0, 0, 1, 0)
     const q180 = q90.mul(q90);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), q180.x.toF64(), 0.002);
@@ -624,8 +624,8 @@ test "FQuat: mul — 90° rotations about z compose to 180°" {
 }
 
 test "FQuat: rotate — 90° about z maps unit_x to unit_y" {
-    const half_sqrt2 = FP.fromFloat(std.math.sqrt2 / 2.0);
-    const q90z = FQuat.init(FP.zero, FP.zero, half_sqrt2, half_sqrt2);
+    const half_sqrt2 = Fp16.fromFloat(std.math.sqrt2 / 2.0);
+    const q90z = FQuat.init(Fp16.zero, Fp16.zero, half_sqrt2, half_sqrt2);
     const rotated = q90z.rotate(FVec3.unit_x);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), rotated.x.toF64(), 0.002);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), rotated.y.toF64(), 0.002);
@@ -633,8 +633,8 @@ test "FQuat: rotate — 90° about z maps unit_x to unit_y" {
 }
 
 test "FQuat: rotate — 90° about z maps unit_y to -unit_x" {
-    const half_sqrt2 = FP.fromFloat(std.math.sqrt2 / 2.0);
-    const q90z = FQuat.init(FP.zero, FP.zero, half_sqrt2, half_sqrt2);
+    const half_sqrt2 = Fp16.fromFloat(std.math.sqrt2 / 2.0);
+    const q90z = FQuat.init(Fp16.zero, Fp16.zero, half_sqrt2, half_sqrt2);
     const rotated = q90z.rotate(FVec3.unit_y);
     try std.testing.expectApproxEqAbs(@as(f64, -1.0), rotated.x.toF64(), 0.002);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), rotated.y.toF64(), 0.002);
@@ -643,13 +643,13 @@ test "FQuat: rotate — 90° about z maps unit_y to -unit_x" {
 
 test "FQuat: eql negative case" {
     const a = FQuat.identity;
-    const b = FQuat.init(FP.one, FP.zero, FP.zero, FP.zero);
+    const b = FQuat.init(Fp16.one, Fp16.zero, Fp16.zero, Fp16.zero);
     try std.testing.expect(!a.eql(b));
 }
 
 test "FQuat: toQuatf" {
-    const half_sqrt2 = FP.fromFloat(std.math.sqrt2 / 2.0);
-    const fq = FQuat.init(FP.zero, FP.zero, half_sqrt2, half_sqrt2);
+    const half_sqrt2 = Fp16.fromFloat(std.math.sqrt2 / 2.0);
+    const fq = FQuat.init(Fp16.zero, Fp16.zero, half_sqrt2, half_sqrt2);
     const rf = fq.toQuatf();
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), rf.x, 0.002);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), rf.y, 0.002);
