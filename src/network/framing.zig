@@ -82,22 +82,14 @@ fn recvExact(t: transport.Transport, buf: []u8) !void {
 // Tests
 // ============================================================================
 
-/// Create a connected socket pair for use in tests.
-fn makeTestPair() ![2]std.c.fd_t {
-    var sv: [2]std.c.fd_t = undefined;
-    const rc = std.c.socketpair(std.c.AF.UNIX, std.c.SOCK.STREAM, 0, &sv);
-    if (rc != 0) return error.SocketpairFailed;
-    return sv;
-}
+const tcp = @import("tcp.zig");
 
 test "framing: roundtrip empty payload" {
-    const fds = try makeTestPair();
-    defer _ = std.c.close(fds[0]);
-    defer _ = std.c.close(fds[1]);
-
-    const tcp = @import("tcp.zig");
+    const fds = try tcp.makeTestPair();
     var sender = tcp.TcpTransport{ .stream = .{ .handle = fds[0] } };
     var receiver = tcp.TcpTransport{ .stream = .{ .handle = fds[1] } };
+    defer sender.deinit();
+    defer receiver.deinit();
 
     try sendFrame(sender.transport(), &.{});
 
@@ -107,13 +99,11 @@ test "framing: roundtrip empty payload" {
 }
 
 test "framing: roundtrip small payload" {
-    const fds = try makeTestPair();
-    defer _ = std.c.close(fds[0]);
-    defer _ = std.c.close(fds[1]);
-
-    const tcp = @import("tcp.zig");
+    const fds = try tcp.makeTestPair();
     var sender = tcp.TcpTransport{ .stream = .{ .handle = fds[0] } };
     var receiver = tcp.TcpTransport{ .stream = .{ .handle = fds[1] } };
+    defer sender.deinit();
+    defer receiver.deinit();
 
     const payload = "blood rift";
     try sendFrame(sender.transport(), payload);
@@ -124,13 +114,11 @@ test "framing: roundtrip small payload" {
 }
 
 test "framing: roundtrip multiple frames" {
-    const fds = try makeTestPair();
-    defer _ = std.c.close(fds[0]);
-    defer _ = std.c.close(fds[1]);
-
-    const tcp = @import("tcp.zig");
+    const fds = try tcp.makeTestPair();
     var sender = tcp.TcpTransport{ .stream = .{ .handle = fds[0] } };
     var receiver = tcp.TcpTransport{ .stream = .{ .handle = fds[1] } };
+    defer sender.deinit();
+    defer receiver.deinit();
 
     try sendFrame(sender.transport(), "first");
     try sendFrame(sender.transport(), "second");
@@ -144,13 +132,11 @@ test "framing: roundtrip multiple frames" {
 }
 
 test "framing: rejects oversized frame" {
-    const fds = try makeTestPair();
-    defer _ = std.c.close(fds[0]);
-    defer _ = std.c.close(fds[1]);
-
-    const tcp = @import("tcp.zig");
+    const fds = try tcp.makeTestPair();
     var sender = tcp.TcpTransport{ .stream = .{ .handle = fds[0] } };
     var receiver = tcp.TcpTransport{ .stream = .{ .handle = fds[1] } };
+    defer sender.deinit();
+    defer receiver.deinit();
 
     // Write a header claiming a payload larger than MAX_FRAME_BYTES.
     var bad_header: [HEADER_BYTES]u8 = undefined;

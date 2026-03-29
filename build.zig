@@ -4,9 +4,17 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // SDL3 path — only needed on Windows where SDL3 isn't system-installed.
+    const sdl3_path = b.option([]const u8, "sdl3", "Path to SDL3 (Windows only)") orelse
+        b.graph.env_map.get("SDL3_DIR") orelse
+        probeSdl3();
+
     // Vulkan SDK path — used for vk.xml (code generation) and glslc (shader compilation).
-    // Resolved from -Dvulkan-sdk=... option, then VULKAN_SDK env var, then a known default.
-    const vulkan_sdk = b.option([]const u8, "vulkan-sdk", "Path to Vulkan SDK (e.g. ~/VulkanSDK/1.x.x/macOS)") orelse std.posix.getenv("VULKAN_SDK") orelse "/Users/bryanjeal/VulkanSDK/1.3.275.0/macOS";
+    // Resolved from: -Dvulkan-sdk option → VULKAN_SDK env var → platform-specific probe.
+    const vulkan_sdk = b.option([]const u8, "vulkan-sdk", "Path to Vulkan SDK") orelse
+        b.graph.env_map.get("VULKAN_SDK") orelse
+        probeVulkanSdk(b.allocator) orelse
+        @panic("Vulkan SDK not found. Set VULKAN_SDK env var or pass -Dvulkan-sdk=<path>.");
 
     // Flecs ECS dependency.
     const zflecs = b.dependency("zflecs", .{
@@ -37,9 +45,10 @@ pub fn build(b: *std.Build) void {
     }
 
     // Vulkan bindings (generates idiomatic Zig from vk.xml at build time).
-    const registry_path = std.fmt.allocPrint(b.allocator, "{s}/share/vulkan/registry/vk.xml", .{vulkan_sdk}) catch @panic("OOM");
+    // Uses vendored vk.xml (1.3.296) because vulkan-zig at bed9e2d cannot parse 1.4 registry.
+    // The vendored registry is only for code generation — runtime uses the installed SDK.
     const vulkan_dep = b.dependency("vulkan", .{
-        .registry = @as(std.Build.LazyPath, .{ .cwd_relative = registry_path }),
+        .registry = @as(std.Build.LazyPath, .{ .cwd_relative = b.pathFromRoot("vendor/vulkan/vk.xml") }),
     });
     const vulkan_module = vulkan_dep.module("vulkan-zig");
 
@@ -74,7 +83,7 @@ pub fn build(b: *std.Build) void {
     engine_module.addImport("vert_spv", vert_module);
     engine_module.addImport("frag_spv", frag_module);
     engine_module.addImport("zgui", zgui_module);
-    addSdl3IncludePaths(engine_module, target.result.os.tag);
+    addSdl3IncludePaths(engine_module, target.result.os.tag, sdl3_path);
 
     // Engine tests.
     const test_module = b.createModule(.{
@@ -88,14 +97,14 @@ pub fn build(b: *std.Build) void {
     test_module.addImport("vert_spv", vert_module);
     test_module.addImport("frag_spv", frag_module);
     test_module.addImport("zgui", zgui_module);
-    addSdl3IncludePaths(test_module, target.result.os.tag);
+    addSdl3IncludePaths(test_module, target.result.os.tag, sdl3_path);
 
     const engine_tests = b.addTest(.{
         .root_module = test_module,
     });
     engine_tests.linkLibrary(zflecs.artifact("flecs"));
     engine_tests.linkLibrary(imgui_lib);
-    linkSdl3(engine_tests);
+    linkSdl3(engine_tests, sdl3_path);
     linkVulkan(engine_tests, vulkan_sdk);
 
     const run_engine_tests = b.addRunArtifact(engine_tests);
@@ -116,16 +125,25 @@ fn compileShader(b: *std.Build, glslc: []const u8, src: []const u8) std.Build.La
 }
 
 /// Add SDL3 C include paths to a module (needed for @cImport in backend.zig).
-fn addSdl3IncludePaths(module: *std.Build.Module, os: std.Target.Os.Tag) void {
+fn addSdl3IncludePaths(module: *std.Build.Module, os: std.Target.Os.Tag, sdl3_opt: ?[]const u8) void {
     switch (os) {
         .macos => module.addIncludePath(.{ .cwd_relative = "/usr/local/opt/sdl3/include" }),
+        .windows => {
+            if (sdl3_opt) |sdl3| {
+                const b = module.owner;
+                const inc_path = std.fmt.allocPrint(b.allocator, "{s}/include", .{sdl3}) catch @panic("OOM");
+                module.addIncludePath(.{ .cwd_relative = inc_path });
+            }
+        },
         else => {},
     }
 }
 
 /// Link the SDL3 system library for a compile step.
 /// On macOS (Homebrew Intel), SDL3 lives under /usr/local/opt/sdl3.
-pub fn linkSdl3(step: *std.Build.Step.Compile) void {
+/// On Windows, sdl3_path must point to the SDL3 install root (with include/ and lib/).
+pub fn linkSdl3(step: *std.Build.Step.Compile, sdl3_opt: ?[]const u8) void {
+    const b = step.step.owner;
     switch (step.rootModuleTarget().os.tag) {
         .macos => {
             step.addLibraryPath(.{ .cwd_relative = "/usr/local/opt/sdl3/lib" });
@@ -137,6 +155,12 @@ pub fn linkSdl3(step: *std.Build.Step.Compile) void {
             step.root_module.addRPathSpecial("$ORIGIN");
         },
         .windows => {
+            if (sdl3_opt) |sdl3| {
+                const lib_path = std.fmt.allocPrint(b.allocator, "{s}/lib/win32-x64", .{sdl3}) catch @panic("OOM");
+                const inc_path = std.fmt.allocPrint(b.allocator, "{s}/include", .{sdl3}) catch @panic("OOM");
+                step.addLibraryPath(.{ .cwd_relative = lib_path });
+                step.root_module.addIncludePath(.{ .cwd_relative = inc_path });
+            }
             step.linkSystemLibrary("SDL3");
         },
         else => {},
@@ -159,8 +183,115 @@ pub fn linkVulkan(step: *std.Build.Step.Compile, vulkan_sdk: []const u8) void {
             step.linkSystemLibrary("vulkan");
         },
         .windows => {
+            const lib_path = std.fmt.allocPrint(b.allocator, "{s}/Lib", .{vulkan_sdk}) catch @panic("OOM");
+            const inc_path = std.fmt.allocPrint(b.allocator, "{s}/Include", .{vulkan_sdk}) catch @panic("OOM");
+            step.addLibraryPath(.{ .cwd_relative = lib_path });
+            step.root_module.addIncludePath(.{ .cwd_relative = inc_path });
             step.linkSystemLibrary("vulkan-1");
         },
         else => {},
     }
+}
+
+/// Probe known SDL3 install locations. Only needed on Windows — macOS/Linux use system paths.
+fn probeSdl3() ?[]const u8 {
+    const builtin = @import("builtin");
+    if (comptime builtin.os.tag != .windows) return null;
+
+    inline for (.{
+        "C:/SDL3",
+        "C:/SDL-v3.4.2",
+        "C:/Libraries/SDL3",
+    }) |p| {
+        if (std.fs.cwd().statFile(p ++ "/include/SDL3/SDL.h")) |_| return p else |_| {}
+    }
+    return null;
+}
+
+/// Probe known Vulkan SDK install locations per platform.
+/// On Windows: C:/VulkanSDK/<version>  (e.g. C:/VulkanSDK/1.4.341.1)
+/// On macOS:   ~/VulkanSDK/<version>/macOS
+/// On Linux:   system paths (no version subdir needed)
+/// Returns null if no SDK found — caller should @panic with a helpful message.
+fn probeVulkanSdk(allocator: std.mem.Allocator) ?[]const u8 {
+    const builtin = @import("builtin");
+
+    switch (builtin.os.tag) {
+        .windows => {
+            return probeVersionedDir(allocator, "C:/VulkanSDK", null, "Bin/glslc.exe");
+        },
+        .macos => {
+            const home = std.process.getEnvVarOwned(allocator, "HOME") catch return null;
+            defer allocator.free(home);
+            const parent = std.fmt.allocPrint(allocator, "{s}/VulkanSDK", .{home}) catch return null;
+            defer allocator.free(parent);
+            return probeVersionedDir(allocator, parent, "macOS", "bin/glslc");
+        },
+        .linux => {
+            const paths: []const []const u8 = &.{ "/usr/share/vulkan", "/usr/local/share/vulkan" };
+            for (paths) |p| {
+                if (std.fs.cwd().openDir(p, .{})) |*dir| {
+                    @constCast(dir).close();
+                    return p;
+                } else |_| {}
+            }
+            return null;
+        },
+        else => return null,
+    }
+}
+
+/// Scan a parent directory for versioned subdirectories, pick the latest valid one.
+/// A version dir is valid if it contains `validate_file` (e.g. "Bin/glslc.exe").
+/// Returns "parent/version" or "parent/version/suffix" if suffix is non-null.
+fn probeVersionedDir(allocator: std.mem.Allocator, parent: []const u8, suffix: ?[]const u8, validate_file: []const u8) ?[]const u8 {
+    var dir = std.fs.cwd().openDir(parent, .{ .iterate = true }) catch return null;
+    defer dir.close();
+
+    // Collect version dirs, pick the latest (lexicographically highest).
+    var best: ?[]const u8 = null;
+    var iter = dir.iterate();
+    while (iter.next() catch return null) |entry| {
+        if (entry.kind != .directory) continue;
+        if (entry.name.len == 0 or entry.name[0] < '0' or entry.name[0] > '9') continue;
+
+        // Build candidate path and validate it has the required file.
+        const candidate = if (suffix) |s|
+            std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{ parent, entry.name, s }) catch continue
+        else
+            std.fmt.allocPrint(allocator, "{s}/{s}", .{ parent, entry.name }) catch continue;
+
+        // Check that the validate_file exists under the candidate.
+        const check_path = std.fmt.allocPrint(allocator, "{s}/{s}", .{ candidate, validate_file }) catch {
+            allocator.free(candidate);
+            continue;
+        };
+        defer allocator.free(check_path);
+
+        if (std.fs.cwd().statFile(check_path)) |_| {
+            // Valid candidate — keep it if it's lexicographically greater than best.
+            if (best) |prev| {
+                if (std.mem.order(u8, entry.name, prev) == .gt) {
+                    // prev was allocated with the build allocator — no need to free (arena).
+                    best = entry.name;
+                    // Return the latest candidate at end.
+                } else {
+                    allocator.free(candidate);
+                    continue;
+                }
+            }
+            best = entry.name;
+        } else |_| {
+            allocator.free(candidate);
+        }
+    }
+
+    if (best) |version| {
+        if (suffix) |s| {
+            return std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{ parent, version, s }) catch return null;
+        } else {
+            return std.fmt.allocPrint(allocator, "{s}/{s}", .{ parent, version }) catch return null;
+        }
+    }
+    return null;
 }
