@@ -11,10 +11,14 @@
 //   §5: TCP for initial implementation; abstraction allows future UDP swap
 
 const std = @import("std");
+const os = @import("../os.zig");
 const transport = @import("transport.zig");
 
 pub const Transport = transport.Transport;
 pub const Listener = transport.Listener;
+
+// Re-export for tests in other modules.
+pub const makeTestPair = os.makeSocketPair;
 
 // ============================================================================
 // TcpTransport
@@ -40,15 +44,7 @@ pub const TcpTransport = struct {
     /// Set a receive timeout. read() returns error.WouldBlock after timeout_ms.
     /// Pass 0 to disable the timeout (block indefinitely).
     pub fn setRecvTimeout(self: *TcpTransport, timeout_ms: u32) !void {
-        const usec: i32 = @intCast((timeout_ms % 1000) * 1000);
-        const sec: i32 = @intCast(timeout_ms / 1000);
-        const tv = std.posix.timeval{ .sec = sec, .usec = usec };
-        try std.posix.setsockopt(
-            self.stream.handle,
-            std.posix.SOL.SOCKET,
-            std.posix.SO.RCVTIMEO,
-            std.mem.asBytes(&tv),
-        );
+        try os.setSockRecvTimeout(self.stream.handle, timeout_ms);
     }
 
     /// Return a Transport handle backed by this TcpTransport.
@@ -64,13 +60,13 @@ pub const TcpTransport = struct {
     fn sendImpl(ptr: *anyopaque, bytes: []const u8) anyerror!void {
         const self: *TcpTransport = @ptrCast(@alignCast(ptr));
         std.debug.assert(bytes.len > 0);
-        try self.stream.writeAll(bytes);
+        try os.socketSendAll(self.stream.handle, bytes);
     }
 
     fn recvImpl(ptr: *anyopaque, buf: []u8) anyerror!usize {
         const self: *TcpTransport = @ptrCast(@alignCast(ptr));
         std.debug.assert(buf.len > 0);
-        return self.stream.read(buf);
+        return os.socketRecv(self.stream.handle, buf);
     }
 
     fn closeImpl(ptr: *anyopaque) void {
@@ -107,15 +103,7 @@ pub const TcpListener = struct {
     /// Set a receive timeout on the listening socket.
     /// accept() returns error.WouldBlock when no connection arrives within the timeout.
     pub fn setAcceptTimeout(self: *TcpListener, timeout_ms: u32) !void {
-        const usec: i32 = @intCast((timeout_ms % 1000) * 1000);
-        const sec: i32 = @intCast(timeout_ms / 1000);
-        const tv = std.posix.timeval{ .sec = sec, .usec = usec };
-        try std.posix.setsockopt(
-            self.server.stream.handle,
-            std.posix.SOL.SOCKET,
-            std.posix.SO.RCVTIMEO,
-            std.mem.asBytes(&tv),
-        );
+        try os.setSockRecvTimeout(self.server.stream.handle, timeout_ms);
     }
 
     /// Accept one incoming connection. The returned TcpTransport is
@@ -179,16 +167,7 @@ test "tcp: connect and echo via socketpair" {
 test "tcp: vtable close is idempotent via stream" {
     const fds = try makeTestPair();
     var t = TcpTransport{ .stream = .{ .handle = fds[0] } };
-    _ = std.c.close(fds[1]);
+    os.closeSocket(fds[1]);
     const handle = t.transport();
     handle.close(); // must not panic or assert-fail
-}
-
-/// Create a connected socket pair for use in tests (replaces std.posix.socketpair
-/// which was removed in Zig 0.15).
-fn makeTestPair() ![2]std.c.fd_t {
-    var sv: [2]std.c.fd_t = undefined;
-    const rc = std.c.socketpair(std.c.AF.UNIX, std.c.SOCK.STREAM, 0, &sv);
-    if (rc != 0) return error.SocketpairFailed;
-    return sv;
 }

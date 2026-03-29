@@ -126,7 +126,10 @@ fn debugCallback(
     p_callback_data: ?*const vk.DebugUtilsMessengerCallbackDataEXT,
     _: ?*anyopaque,
 ) callconv(vk.vulkan_call_conv) vk.Bool32 {
-    const msg = if (p_callback_data) |d| d.p_message else "(null)";
+    const msg: []const u8 = if (p_callback_data) |d| blk: {
+        const ptr = d.p_message orelse break :blk "(null)";
+        break :blk std.mem.sliceTo(ptr, 0);
+    } else "(null)";
     if (severity.error_bit_ext) {
         std.debug.panic("Vulkan validation error: {s}", .{msg});
     }
