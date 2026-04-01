@@ -94,10 +94,11 @@ pub const InputSnapshot = struct {
     move_down: bool = false,
     move_left: bool = false,
     move_right: bool = false,
-    skill_1: bool = false, // Q
-    skill_2: bool = false, // E
-    skill_3: bool = false, // R
-    skill_4: bool = false, // F
+    skill_1: bool = false, // Q (Primary when auto off)
+    skill_2: bool = false, // E (Heavy)
+    skill_3: bool = false, // R (Special)
+    skill_4: bool = false, // Space (Movement)
+    skill_5: bool = false, // F (Heal)
     quit: bool = false,
 
     /// All fields false.
@@ -142,7 +143,8 @@ pub fn pollEvents(snap: *InputSnapshot, event_hook: ?*const fn (*const anyopaque
     snap.skill_1 = kb[@intFromEnum(sdl.Scancode.q)];
     snap.skill_2 = kb[@intFromEnum(sdl.Scancode.e)];
     snap.skill_3 = kb[@intFromEnum(sdl.Scancode.r)];
-    snap.skill_4 = kb[@intFromEnum(sdl.Scancode.f)];
+    snap.skill_4 = kb[@intFromEnum(sdl.Scancode.space)];
+    snap.skill_5 = kb[@intFromEnum(sdl.Scancode.f)];
 
     if (kb[@intFromEnum(sdl.Scancode.escape)]) {
         snap.quit = true;
