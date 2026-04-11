@@ -40,6 +40,22 @@ comptime {
     std.debug.assert(@sizeOf(PushData) == 96);
 }
 
+// Push constant layout for ground effects (112 bytes, vertex stage only).
+const GroundPushData = extern struct {
+    vp: [16]f32, // view-projection matrix (column-major), bytes 0–63
+    model_pos: [3]f32, // effect world-space position, bytes 64–75
+    _pad1: f32 = 0, // padding, bytes 76–79
+    color: [4]f32, // RGBA linear color, bytes 80–95
+    radius: f32, // ground effect radius, bytes 96–99
+    time: f32, // elapsed seconds for animation, bytes 100–103
+    effect_type: f32, // GroundEffectType int value, bytes 104–107
+    intensity: f32 = 1.0, // visual intensity [0,1], bytes 108–111
+};
+
+comptime {
+    std.debug.assert(@sizeOf(GroundPushData) == 112);
+}
+
 pub const VulkanBackend = struct {
     allocator: std.mem.Allocator,
     surface: vk.SurfaceKHR,
@@ -47,6 +63,7 @@ pub const VulkanBackend = struct {
     device: device_mod.DeviceState,
     swapchain: swapchain_mod.SwapchainState,
     pipeline: pipeline_mod.PipelineState,
+    ground_pipeline: pipeline_mod.PipelineState,
     commands: commands_mod.CommandState,
     vertex_buffer: vk.Buffer,
     vertex_buffer_memory: vk.DeviceMemory,
@@ -99,6 +116,11 @@ pub const VulkanBackend = struct {
             var pip_copy = pip;
             pipeline_mod.deinit(&pip_copy, dev.vkd, dev.handle);
         }
+        const ground_pip = try pipeline_mod.initGround(dev.vkd, dev.handle, pip.render_pass, sc.extent);
+        errdefer {
+            var gp_copy = ground_pip;
+            pipeline_mod.deinitGround(&gp_copy, dev.vkd, dev.handle);
+        }
         const cmds = try commands_mod.init(
             dev.vkd,
             dev.handle,
@@ -141,6 +163,7 @@ pub const VulkanBackend = struct {
             .device = dev,
             .swapchain = sc,
             .pipeline = pip,
+            .ground_pipeline = ground_pip,
             .commands = cmds,
             .vertex_buffer = vb.buffer,
             .vertex_buffer_memory = vb.memory,
@@ -158,6 +181,7 @@ pub const VulkanBackend = struct {
         self.device.vkd.destroyDescriptorPool(self.device.handle, self.imgui_descriptor_pool, null);
         commands_mod.deinit(&self.commands, self.device.vkd, self.device.handle);
         pipeline_mod.deinit(&self.pipeline, self.device.vkd, self.device.handle);
+        pipeline_mod.deinitGround(&self.ground_pipeline, self.device.vkd, self.device.handle);
         self.device.vkd.destroyBuffer(self.device.handle, self.vertex_buffer, null);
         self.device.vkd.freeMemory(self.device.handle, self.vertex_buffer_memory, null);
         swapchain_mod.deinit(&self.swapchain, self.device.vkd, self.device.handle);
@@ -221,6 +245,36 @@ pub const VulkanBackend = struct {
             &push,
         );
         self.device.vkd.cmdDraw(cmd, dc.vertex_count, dc.instance_count, dc.first_vertex, dc.first_instance);
+    }
+
+    /// Submit a ground effect draw call using the blended pipeline.
+    /// Binds the ground pipeline, pushes extended constants, draws a quad.
+    pub fn submitGroundCall(self: *VulkanBackend, gc: renderer_mod.GroundCall) !void {
+        const cmd = self.commands.buffers[self.current_frame];
+        // Switch to the ground effect pipeline (blended, extended push constants).
+        self.device.vkd.cmdBindPipeline(cmd, .graphics, self.ground_pipeline.handle);
+        const offset: vk.DeviceSize = 0;
+        self.device.vkd.cmdBindVertexBuffers(cmd, 0, 1, @ptrCast(&self.vertex_buffer), @ptrCast(&offset));
+        const push = GroundPushData{
+            .vp = self.current_vp,
+            .model_pos = gc.position,
+            .color = gc.color,
+            .radius = gc.radius,
+            .time = gc.time,
+            .effect_type = @floatFromInt(@intFromEnum(gc.effect_type)),
+            .intensity = gc.intensity,
+        };
+        self.device.vkd.cmdPushConstants(
+            cmd,
+            self.ground_pipeline.layout,
+            .{ .vertex_bit = true },
+            0,
+            @sizeOf(GroundPushData),
+            &push,
+        );
+        self.device.vkd.cmdDraw(cmd, 6, 1, 0, 0);
+        // Switch back to entity pipeline for subsequent draw calls.
+        self.device.vkd.cmdBindPipeline(cmd, .graphics, self.pipeline.handle);
     }
 
     pub fn endFrame(self: *VulkanBackend) !void {
@@ -389,6 +443,11 @@ const vtable = renderer_mod.Renderer.VTable{
     .submit_draw_call_fn = struct {
         fn f(ptr: *anyopaque, dc: renderer_mod.DrawCall) anyerror!void {
             return @as(*VulkanBackend, @ptrCast(@alignCast(ptr))).submitDrawCall(dc);
+        }
+    }.f,
+    .submit_ground_call_fn = struct {
+        fn f(ptr: *anyopaque, gc: renderer_mod.GroundCall) anyerror!void {
+            return @as(*VulkanBackend, @ptrCast(@alignCast(ptr))).submitGroundCall(gc);
         }
     }.f,
     .end_frame_fn = struct {

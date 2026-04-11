@@ -57,6 +57,10 @@ pub fn build(b: *std.Build) void {
     const vert_spv = compileShader(b, glslc_path, "src/renderer/shaders/entity.vert");
     const frag_spv = compileShader(b, glslc_path, "src/renderer/shaders/entity.frag");
 
+    // Compile ground effect shaders to SPIR-V.
+    const ground_vert_spv = compileShader(b, glslc_path, "src/renderer/shaders/ground_effect.vert");
+    const ground_frag_spv = compileShader(b, glslc_path, "src/renderer/shaders/ground_effect.frag");
+
     // Wrap each SPIR-V file in a tiny Zig module that exposes it via @embedFile.
     const shader_wf = b.addWriteFiles();
     const vert_wrapper = shader_wf.add("vert_spv.zig",
@@ -65,11 +69,21 @@ pub fn build(b: *std.Build) void {
     const frag_wrapper = shader_wf.add("frag_spv.zig",
         \\pub const bytes = @embedFile("entity.frag.spv");
     );
+    const ground_vert_wrapper = shader_wf.add("ground_vert_spv.zig",
+        \\pub const bytes = @embedFile("ground_effect.vert.spv");
+    );
+    const ground_frag_wrapper = shader_wf.add("ground_frag_spv.zig",
+        \\pub const bytes = @embedFile("ground_effect.frag.spv");
+    );
     _ = shader_wf.addCopyFile(vert_spv, "entity.vert.spv");
     _ = shader_wf.addCopyFile(frag_spv, "entity.frag.spv");
+    _ = shader_wf.addCopyFile(ground_vert_spv, "ground_effect.vert.spv");
+    _ = shader_wf.addCopyFile(ground_frag_spv, "ground_effect.frag.spv");
 
     const vert_module = b.createModule(.{ .root_source_file = vert_wrapper });
     const frag_module = b.createModule(.{ .root_source_file = frag_wrapper });
+    const ground_vert_module = b.createModule(.{ .root_source_file = ground_vert_wrapper });
+    const ground_frag_module = b.createModule(.{ .root_source_file = ground_frag_wrapper });
 
     // Expose the engine as a module for the parent build.
     const engine_module = b.addModule("engine", .{
@@ -82,6 +96,8 @@ pub fn build(b: *std.Build) void {
     engine_module.addImport("vulkan", vulkan_module);
     engine_module.addImport("vert_spv", vert_module);
     engine_module.addImport("frag_spv", frag_module);
+    engine_module.addImport("ground_vert_spv", ground_vert_module);
+    engine_module.addImport("ground_frag_spv", ground_frag_module);
     engine_module.addImport("zgui", zgui_module);
     addSdl3IncludePaths(engine_module, target.result.os.tag, sdl3_path);
 
@@ -96,6 +112,8 @@ pub fn build(b: *std.Build) void {
     test_module.addImport("vulkan", vulkan_module);
     test_module.addImport("vert_spv", vert_module);
     test_module.addImport("frag_spv", frag_module);
+    test_module.addImport("ground_vert_spv", ground_vert_module);
+    test_module.addImport("ground_frag_spv", ground_frag_module);
     test_module.addImport("zgui", zgui_module);
     addSdl3IncludePaths(test_module, target.result.os.tag, sdl3_path);
 
