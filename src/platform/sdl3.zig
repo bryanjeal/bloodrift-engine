@@ -30,7 +30,7 @@ pub const Window = struct {
         std.debug.assert(height > 0);
         try sdl.init(.{ .video = true, .events = true });
         // SDL_WINDOW_VULKAN is required for SDL_Vulkan_CreateSurface (M7+).
-        const handle = try sdl.createWindow(title, @intCast(width), @intCast(height), .{ .vulkan = true });
+        const handle = try sdl.createWindow(title, @intCast(width), @intCast(height), .{ .vulkan = true, .resizable = true });
         return .{ .handle = handle };
     }
 
@@ -39,6 +39,14 @@ pub const Window = struct {
         sdl.destroyWindow(self.handle);
         sdl.quit();
         self.handle = undefined;
+    }
+
+    /// Get the current window dimensions in pixels.
+    pub fn getSize(self: *const Window) struct { width: u32, height: u32 } {
+        var w: c_int = 0;
+        var h: c_int = 0;
+        sdl.getWindowSize(self.handle, &w, &h);
+        return .{ .width = @intCast(w), .height = @intCast(h) };
     }
 
     /// @deprecated: Use engine.renderer.Renderer.present() instead (M7+).
@@ -100,6 +108,7 @@ pub const InputSnapshot = struct {
     skill_4: bool = false, // Space (Movement)
     skill_5: bool = false, // F (Heal)
     quit: bool = false,
+    window_resized: bool = false,
 
     /// All fields false.
     pub const zero: InputSnapshot = .{};
@@ -125,6 +134,8 @@ pub fn pollEvents(snap: *InputSnapshot, event_hook: ?*const fn (*const anyopaque
         if (event_hook) |hook| hook(@ptrCast(&event));
         if (event.type == .quit) {
             snap.quit = true;
+        } else if (event.type == .window_pixel_size_changed) {
+            snap.window_resized = true;
         }
     }
 

@@ -67,6 +67,8 @@ pub const Renderer = struct {
         end_frame_fn: *const fn (ptr: *anyopaque) anyerror!void,
         /// Present the rendered frame to the window surface.
         present_fn: *const fn (ptr: *anyopaque) anyerror!void,
+        /// Recreate swapchain and framebuffers for the new window size.
+        resize_fn: *const fn (ptr: *anyopaque, width: u32, height: u32) anyerror!void,
         /// Destroy all backend resources. Waits for GPU idle before releasing.
         deinit_fn: *const fn (ptr: *anyopaque) void,
     };
@@ -89,6 +91,10 @@ pub const Renderer = struct {
 
     pub fn present(self: Renderer) !void {
         return self.vtable.present_fn(self.ptr);
+    }
+
+    pub fn resize(self: Renderer, width: u32, height: u32) !void {
+        return self.vtable.resize_fn(self.ptr, width, height);
     }
 
     pub fn deinit(self: Renderer) void {

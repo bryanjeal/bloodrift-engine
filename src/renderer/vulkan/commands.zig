@@ -90,7 +90,7 @@ pub fn deinit(state: *CommandState, vkd: vk.DeviceWrapper, device: vk.Device) vo
 // Framebuffer creation
 // ============================================================================
 
-fn createFramebuffers(
+pub fn createFramebuffers(
     vkd: vk.DeviceWrapper,
     device: vk.Device,
     sc: *const swapchain_mod.SwapchainState,

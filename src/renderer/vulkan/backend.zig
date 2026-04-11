@@ -310,6 +310,45 @@ pub const VulkanBackend = struct {
         self.current_frame = (self.current_frame + 1) % commands_mod.MAX_FRAMES_IN_FLIGHT;
     }
 
+    /// Recreate swapchain and framebuffers for a new window size.
+    /// Called after the window is resized. Waits for GPU idle first.
+    pub fn resize(self: *VulkanBackend, width: u32, height: u32) !void {
+        std.debug.assert(width > 0 and height > 0);
+        try self.device.vkd.deviceWaitIdle(self.device.handle);
+
+        // Destroy old framebuffers (they depend on swapchain image views).
+        for (self.commands.framebuffers) |fb| {
+            self.device.vkd.destroyFramebuffer(self.device.handle, fb, null);
+        }
+        self.allocator.free(self.commands.framebuffers);
+
+        // Destroy old swapchain (image views + VkSwapchainKHR).
+        swapchain_mod.deinit(&self.swapchain, self.device.vkd, self.device.handle);
+
+        // Create new swapchain at the new size.
+        self.swapchain = try swapchain_mod.init(
+            self.instance.vki,
+            self.device.vkd,
+            self.device.physical,
+            self.device.handle,
+            self.surface,
+            self.device.families.graphics,
+            self.device.families.present,
+            width,
+            height,
+            self.allocator,
+        );
+
+        // Recreate framebuffers with the new swapchain image views.
+        self.commands.framebuffers = try commands_mod.createFramebuffers(
+            self.device.vkd,
+            self.device.handle,
+            &self.swapchain,
+            &self.pipeline,
+            self.allocator,
+        );
+    }
+
     // =========================================================================
     // SDL integration (macOS / cross-platform)
     // =========================================================================
@@ -458,6 +497,11 @@ const vtable = renderer_mod.Renderer.VTable{
     .present_fn = struct {
         fn f(ptr: *anyopaque) anyerror!void {
             return @as(*VulkanBackend, @ptrCast(@alignCast(ptr))).present();
+        }
+    }.f,
+    .resize_fn = struct {
+        fn f(ptr: *anyopaque, width: u32, height: u32) anyerror!void {
+            return @as(*VulkanBackend, @ptrCast(@alignCast(ptr))).resize(width, height);
         }
     }.f,
     .deinit_fn = struct {
