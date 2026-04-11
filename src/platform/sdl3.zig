@@ -45,7 +45,7 @@ pub const Window = struct {
     pub fn getSize(self: *const Window) struct { width: u32, height: u32 } {
         var w: c_int = 0;
         var h: c_int = 0;
-        sdl.getWindowSize(self.handle, &w, &h);
+        sdl.getWindowSize(self.handle, &w, &h) catch return .{ .width = 1280, .height = 720 };
         return .{ .width = @intCast(w), .height = @intCast(h) };
     }
 
