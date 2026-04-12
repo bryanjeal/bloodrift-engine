@@ -12,7 +12,7 @@
 
 const std = @import("std");
 pub const zflecs = @import("zflecs");
-const types = @import("types.zig");
+const types = @import("types/root.zig");
 const EntityId = types.EntityId;
 
 /// A wrapped Flecs world instance.

@@ -15,7 +15,7 @@
 // ring buffer, enabling rollback to any of the last N ticks.
 
 const std = @import("std");
-const types = @import("types.zig");
+const types = @import("types/root.zig");
 const EntityId = types.EntityId;
 const Tick = types.Tick;
 

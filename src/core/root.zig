@@ -8,7 +8,7 @@
 //   const Fp16 = core.fixed_point.Fp16;
 //   const FVec3 = core.math.FVec3;
 
-pub const types = @import("types.zig");
+pub const types = @import("types/root.zig");
 pub const memory = @import("memory.zig");
 pub const fixed_point = @import("fixed_point.zig");
 pub const math = @import("math.zig");
