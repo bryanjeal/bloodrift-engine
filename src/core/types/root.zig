@@ -5,6 +5,9 @@
 
 const std = @import("std");
 
+// Export the Color type from the color module for use in other modules without importing color.zig directly.
+pub const Color = @import("color.zig").Color;
+
 /// A stable, unique identifier for a game entity.
 ///
 /// The lower 32 bits are the entity index; the upper 32 bits are the generation

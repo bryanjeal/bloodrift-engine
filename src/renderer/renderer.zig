@@ -6,6 +6,8 @@
 // Design decisions referenced:
 //   §3: Vulkan as first rendering backend, behind an abstraction layer
 
+const Color = @import("../core/types/color.zig").Color;
+
 /// Per-frame camera data passed to beginFrame.
 /// The view-projection matrix is column-major to match Vulkan/GLSL convention.
 /// Obtain from Mat4f: @bitCast(mat4.cols)
@@ -21,8 +23,7 @@ pub const DrawCall = struct {
     first_instance: u32 = 0,
     /// Entity world-space position (x, y, z). Passed as push constant.
     position: [3]f32 = .{ 0, 0, 0 },
-    /// RGBA linear color. Looked up from Renderable.color_id by the caller.
-    color: [4]f32 = .{ 1, 1, 1, 1 },
+    color: Color = Color.white,
 };
 
 /// Ground effect type: aura (swirling noise) or pyre (procedural fire).
@@ -35,8 +36,7 @@ pub const GroundEffectType = enum(u32) {
 pub const GroundCall = struct {
     /// Effect world-space position (x, y, z).
     position: [3]f32,
-    /// RGBA linear color (affinity color for auras, warm color for pyres).
-    color: [4]f32,
+    color: Color,
     /// Ground effect radius in world units.
     radius: f32,
     /// Elapsed time in seconds for animation.

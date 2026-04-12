@@ -10,7 +10,7 @@
 // responsibility if used from multiple threads.
 
 const std = @import("std");
-const types = @import("types.zig");
+const types = @import("types/root.zig");
 
 // ----------------------------------------------------------------------------
 // ArenaAllocator

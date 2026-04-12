@@ -234,7 +234,7 @@ pub const VulkanBackend = struct {
         const push = PushData{
             .vp = self.current_vp,
             .model_pos = dc.position,
-            .color = dc.color,
+            .color = dc.color.toArray(),
         };
         self.device.vkd.cmdPushConstants(
             cmd,
@@ -258,7 +258,7 @@ pub const VulkanBackend = struct {
         const push = GroundPushData{
             .vp = self.current_vp,
             .model_pos = gc.position,
-            .color = gc.color,
+            .color = gc.color.toArray(),
             .radius = gc.radius,
             .time = gc.time,
             .effect_type = @floatFromInt(@intFromEnum(gc.effect_type)),
