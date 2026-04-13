@@ -9,6 +9,10 @@
 //   S3: Vulkan as first rendering backend, behind an abstraction layer
 //   S33: DOD render queue, SSBO instancing, build-time material baking
 
+const build_options = @import("build_options");
+
+const selected_renderer = build_options.renderer;
+
 /// Per-frame camera data. Pushed as a single push constant (64 bytes).
 /// The view-projection matrix is column-major to match Vulkan/GLSL convention.
 /// Obtain from Mat4f: @bitCast(mat4.cols)
@@ -57,57 +61,44 @@ pub const RenderQueue = struct {
 /// init time and never touches disk during the render loop.
 pub const MaterialDef = struct {
     material_id: u16,
-    vertex_spv: []const u8,
-    fragment_spv: []const u8,
+    vertex_shader: ShaderPayload,
+    fragment_shader: ShaderPayload,
     blend_enable: bool = false,
-};
 
-/// Runtime vtable-based renderer interface.
-///
-/// Ownership: the backing memory for the concrete backend is owned by the
-/// caller. The Renderer handle must not outlive it.
-pub const Renderer = struct {
-    ptr: *anyopaque,
-    vtable: *const VTable,
-
-    pub const VTable = struct {
-        /// Acquire the next swapchain image and begin recording commands.
-        /// camera contains the view-projection matrix for this frame.
-        begin_frame_fn: *const fn (ptr: *anyopaque, camera: CameraData) anyerror!void,
-        /// Submit a sorted render queue. The backend uploads instances to
-        /// SSBO, binds per-material pipelines, and issues instanced draws.
-        submit_queue_fn: *const fn (ptr: *anyopaque, queue: RenderQueue) anyerror!void,
-        /// End command recording and submit to the graphics queue.
-        end_frame_fn: *const fn (ptr: *anyopaque) anyerror!void,
-        /// Present the rendered frame to the window surface.
-        present_fn: *const fn (ptr: *anyopaque) anyerror!void,
-        /// Recreate swapchain and framebuffers for the new window size.
-        resize_fn: *const fn (ptr: *anyopaque, width: u32, height: u32) anyerror!void,
-        /// Destroy all backend resources. Waits for GPU idle before releasing.
-        deinit_fn: *const fn (ptr: *anyopaque) void,
+    const ShaderPayload = switch (selected_renderer) {
+        .vulkan => []align(@alignOf(u32)) const u8, // SPIR-V bytecode must be u32-aligned for Vulkan.
+        .webgpu => []const u8, // WGSL bytecode is UTF-8 text, can be unaligned.
+        .opengl => [:0]const u8, // GLSL needs null-terminated UTF-8 string ([:0]const u8).
     };
-
-    pub fn beginFrame(self: Renderer, camera: CameraData) !void {
-        return self.vtable.begin_frame_fn(self.ptr, camera);
-    }
-
-    pub fn submitQueue(self: Renderer, queue: RenderQueue) !void {
-        return self.vtable.submit_queue_fn(self.ptr, queue);
-    }
-
-    pub fn endFrame(self: Renderer) !void {
-        return self.vtable.end_frame_fn(self.ptr);
-    }
-
-    pub fn present(self: Renderer) !void {
-        return self.vtable.present_fn(self.ptr);
-    }
-
-    pub fn resize(self: Renderer, width: u32, height: u32) !void {
-        return self.vtable.resize_fn(self.ptr, width, height);
-    }
-
-    pub fn deinit(self: Renderer) void {
-        self.vtable.deinit_fn(self.ptr);
-    }
 };
+
+/// Asserts at compile time that the provided type T perfectly matches
+/// the required Renderer interface.
+pub fn assertRendererInterface(comptime T: type) void {
+    // If this is evaluated outside of a `comptime { }` block, kill the build.
+    if (!@inComptime()) {
+        @compileError("assertRendererInterface must only be called inside a comptime block!");
+    }
+
+    // By trying to assign the struct's functions to these explicitly
+    // typed constants, the compiler will hard-stop if signatures mismatch.
+    comptime {
+        const beginFrame: *const fn (*T, CameraData) anyerror!void = &T.beginFrame;
+        _ = beginFrame;
+
+        const submitQueue: *const fn (*T, RenderQueue) anyerror!void = &T.submitQueue;
+        _ = submitQueue;
+
+        const endFrame: *const fn (*T) anyerror!void = &T.endFrame;
+        _ = endFrame;
+
+        const present: *const fn (*T) anyerror!void = &T.present;
+        _ = present;
+
+        const resize: *const fn (*T, u32, u32) anyerror!void = &T.resize;
+        _ = resize;
+
+        const deinit: *const fn (*T) void = &T.deinit;
+        _ = deinit;
+    }
+}

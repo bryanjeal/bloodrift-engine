@@ -30,15 +30,22 @@ linkVulkan(client_exe, vulkan_sdk);
 
 ## Renderer Abstraction Contract
 
-No Vulkan types cross the `Renderer` interface boundary. `VulkanBackend` is a concrete type; callers hold a `Renderer` value (fat pointer + vtable).
+The `Renderer` type is now a comptime alias, not a runtime vtable wrapper. The `-Dbackend=` build option selects the concrete backend at compile time via `switch (build_options.renderer)`. Backends are validated at comptime via `assertRendererInterface()`.
 
 ```zig
-var backend = try VulkanBackend.init(allocator, window.handle, width, height);
+const Renderer = @import("engine").renderer.Renderer; // comptime-selected type
+var backend = try Renderer.init(allocator, window.handle, width, height);
 defer backend.deinit();
-const rend = backend.renderer(); // returns Renderer (vtable handle)
 ```
 
-The `Renderer` value must not outlive the `VulkanBackend` it was created from.
+All backend structs must implement the required interface: `beginFrame`, `submitQueue`, `endFrame`, `present`, `resize`, `deinit`. Violations are compile errors.
+
+`ShaderPayload` is a comptime-switched type:
+- `.vulkan` => `[]align(@alignOf(u32)) const u8` (SPIR-V)
+- `.webgpu` => `[]const u8` (WGSL)
+- `.opengl` => `[:0]const u8` (GLSL)
+
+Build with `-Dbackend=vulkan` (default) or `-Dbackend=webgpu`/`-Dbackend=opengl` when those backends are implemented.
 
 ## Shader Compilation (glslc + WriteFile embed)
 

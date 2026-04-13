@@ -189,14 +189,15 @@ pub const VulkanBackend = struct {
                 .p_push_constant_ranges = @ptrCast(&push_range),
             }, null);
             errdefer dev.vkd.destroyPipelineLayout(dev.handle, layout, null);
+
             const pipeline = try pipeline_mod.createMaterialPipeline(
                 dev.vkd,
                 dev.handle,
                 pip.render_pass,
                 layout,
                 sc.extent,
-                mat.vertex_spv,
-                mat.fragment_spv,
+                mat.vertex_shader,
+                mat.fragment_shader,
                 mat.blend_enable,
             );
             errdefer dev.vkd.destroyPipeline(dev.handle, pipeline, null);
@@ -278,12 +279,6 @@ pub const VulkanBackend = struct {
         self.* = undefined;
     }
 
-    /// Return a vtable-based Renderer pointing at this backend.
-    /// The returned Renderer must not outlive this VulkanBackend.
-    pub fn renderer(self: *VulkanBackend) renderer_mod.Renderer {
-        return .{ .ptr = self, .vtable = &vtable };
-    }
-
     // =========================================================================
     // Frame interface
     // =========================================================================
@@ -337,12 +332,16 @@ pub const VulkanBackend = struct {
 
         // Upload instance data to the persistently-mapped SSBO.
         const upload_size = queue.count * @sizeOf(renderer_mod.InstanceData);
+        const atom_size = self.device.properties.limits.non_coherent_atom_size;
+        // Round up to the next multiple of the device's atom size
+        const flush_size = std.mem.alignForward(u64, upload_size, atom_size);
+
         @memcpy(self.instance_buffer_ptr[0..upload_size], @as([*]const u8, @ptrCast(queue.instances.ptr))[0..upload_size]);
         // Flush for host-coherent memory (ensures GPU sees the writes).
         const flush_range = vk.MappedMemoryRange{
             .memory = self.instance_buffer_memory,
             .offset = 0,
-            .size = upload_size,
+            .size = flush_size,
         };
         vkd.flushMappedMemoryRanges(dev, 1, @ptrCast(&flush_range)) catch {};
 
@@ -471,6 +470,12 @@ pub const VulkanBackend = struct {
         return @enumFromInt(@intFromPtr(raw_surface));
     }
 };
+
+// Force the compiler to check this struct against the interface definition
+// the moment this file is parsed.
+comptime {
+    renderer_mod.assertRendererInterface(VulkanBackend);
+}
 
 // ============================================================================
 // Dear ImGui helpers
@@ -659,40 +664,3 @@ fn findMemoryType(
     }
     return error.NoSuitableMemoryType;
 }
-
-// ============================================================================
-// Vtable shims (C-style fn pointers -> method calls)
-// ============================================================================
-
-const vtable = renderer_mod.Renderer.VTable{
-    .begin_frame_fn = struct {
-        fn f(ptr: *anyopaque, camera: renderer_mod.CameraData) anyerror!void {
-            return @as(*VulkanBackend, @ptrCast(@alignCast(ptr))).beginFrame(camera);
-        }
-    }.f,
-    .submit_queue_fn = struct {
-        fn f(ptr: *anyopaque, queue: renderer_mod.RenderQueue) anyerror!void {
-            return @as(*VulkanBackend, @ptrCast(@alignCast(ptr))).submitQueue(queue);
-        }
-    }.f,
-    .end_frame_fn = struct {
-        fn f(ptr: *anyopaque) anyerror!void {
-            return @as(*VulkanBackend, @ptrCast(@alignCast(ptr))).endFrame();
-        }
-    }.f,
-    .present_fn = struct {
-        fn f(ptr: *anyopaque) anyerror!void {
-            return @as(*VulkanBackend, @ptrCast(@alignCast(ptr))).present();
-        }
-    }.f,
-    .resize_fn = struct {
-        fn f(ptr: *anyopaque, width: u32, height: u32) anyerror!void {
-            return @as(*VulkanBackend, @ptrCast(@alignCast(ptr))).resize(width, height);
-        }
-    }.f,
-    .deinit_fn = struct {
-        fn f(ptr: *anyopaque) void {
-            @as(*VulkanBackend, @ptrCast(@alignCast(ptr))).deinit();
-        }
-    }.f,
-};

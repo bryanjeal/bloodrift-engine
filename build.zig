@@ -1,8 +1,14 @@
 const std = @import("std");
 
+const Renderer = enum { vulkan, webgpu, opengl };
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const options = b.addOptions();
+
+    const renderer = parseRendererOption(b);
+    options.addOption(Renderer, "renderer", renderer);
 
     // SDL3 path - only needed on Windows where SDL3 isn't system-installed.
     const sdl3_path = b.option([]const u8, "sdl3", "Path to SDL3 (Windows only)") orelse
@@ -60,6 +66,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    engine_module.addOptions("build_options", options);
     engine_module.addImport("zflecs", zflecs.module("root"));
     engine_module.addImport("zsdl3", zsdl.module("zsdl3"));
     engine_module.addImport("vulkan", vulkan_module);
@@ -260,4 +267,20 @@ fn probeVersionedDir(allocator: std.mem.Allocator, parent: []const u8, suffix: ?
         }
     }
     return null;
+}
+
+fn parseRendererOption(b: *std.Build) Renderer {
+    const rawOption = b.option([]const u8, "backend", "The rendering backend to use (vulkan, webgpu, opengl)") orelse "vulkan";
+
+    if (std.mem.eql(u8, rawOption, "vulkan")) {
+        return .vulkan;
+    } else if (std.mem.eql(u8, rawOption, "webgpu")) {
+        @panic("webgpu is not implemented yet");
+        //return .webgpu;
+    } else if (std.mem.eql(u8, rawOption, "opengl")) {
+        @panic("opengl is not implemented yet");
+        //return .opengl;
+    } else {
+        @panic("Invalid backend option. Use -Dbackend=vulkan|webgpu|opengl");
+    }
 }

@@ -18,6 +18,7 @@ pub const QueueFamilyIndices = struct {
 
 pub const DeviceState = struct {
     physical: vk.PhysicalDevice,
+    properties: vk.PhysicalDeviceProperties,
     handle: vk.Device,
     vkd: vk.DeviceWrapper,
     graphics_queue: vk.Queue,
@@ -41,8 +42,10 @@ pub fn init(
     const vkd = vk.DeviceWrapper.load(handle, vki.dispatch.vkGetDeviceProcAddr.?);
     const graphics_queue = vkd.getDeviceQueue(handle, families.graphics, 0);
     const present_queue = vkd.getDeviceQueue(handle, families.present, 0);
+
     return .{
         .physical = physical,
+        .properties = vki.getPhysicalDeviceProperties(physical),
         .handle = handle,
         .vkd = vkd,
         .graphics_queue = graphics_queue,

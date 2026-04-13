@@ -65,17 +65,13 @@ pub fn createMaterialPipeline(
     render_pass: vk.RenderPass,
     pipeline_layout: vk.PipelineLayout,
     extent: vk.Extent2D,
-    vertex_spv: []const u8,
-    fragment_spv: []const u8,
+    vertex_spv: []align(@alignOf(u32)) const u8,
+    fragment_spv: []align(@alignOf(u32)) const u8,
     blended: bool,
 ) !vk.Pipeline {
-    // Align SPIR-V bytes for Vulkan (requires u32 alignment).
-    const vert_bytes: []align(@alignOf(u32)) const u8 = @alignCast(vertex_spv);
-    const frag_bytes: []align(@alignOf(u32)) const u8 = @alignCast(fragment_spv);
-
-    const vert_module = try createShaderModule(vkd, device, vert_bytes);
+    const vert_module = try createShaderModule(vkd, device, vertex_spv);
     defer vkd.destroyShaderModule(device, vert_module, null);
-    const frag_module = try createShaderModule(vkd, device, frag_bytes);
+    const frag_module = try createShaderModule(vkd, device, fragment_spv);
     defer vkd.destroyShaderModule(device, frag_module, null);
 
     return createGraphicsPipelineFromModules(
