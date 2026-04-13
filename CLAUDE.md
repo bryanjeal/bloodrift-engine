@@ -41,7 +41,7 @@ var backend = try Renderer.init(
     height,
     @import("render/materials.zig").ALL_MATERIALS, // required materials parameter
 );
-defer backend.deinit(&backend); // deinit takes a pointer to the backend
+defer backend.deinit(); // deinit takes a pointer to the backend; method call auto-converts
 ```
 
 All backend structs must implement the required interface: `beginFrame`, `submitQueue`, `endFrame`, `present`, `resize`, `deinit`. Violations are compile errors.
