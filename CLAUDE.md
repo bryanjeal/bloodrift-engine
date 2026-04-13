@@ -34,8 +34,14 @@ The `Renderer` type is now a comptime alias, not a runtime vtable wrapper. The `
 
 ```zig
 const Renderer = @import("engine").renderer.Renderer; // comptime-selected type
-var backend = try Renderer.init(allocator, window.handle, width, height);
-defer backend.deinit();
+var backend = try Renderer.init(
+    allocator,
+    window.handle,
+    width,
+    height,
+    @import("render/materials.zig").ALL_MATERIALS, // required materials parameter
+);
+defer backend.deinit(&backend); // deinit takes a pointer to the backend
 ```
 
 All backend structs must implement the required interface: `beginFrame`, `submitQueue`, `endFrame`, `present`, `resize`, `deinit`. Violations are compile errors.

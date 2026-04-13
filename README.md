@@ -22,20 +22,19 @@ The Blood Rift Engine is a modern, cross-platform game engine built in Zig. It p
 
 ### Building
 
-```bash
-zig build test                    # Run full test suite
-zig build client                  # Build and run the client
-zig build server                  # Build and run the server
-zig build simulator -Doptimize=ReleaseSafe  # Run deterministic simulator
-```
-
-### Configuration
-
-The engine supports build-time configuration via `-Dbackend=` and `-Dvulkan-sdk=` options:
+The engine is built as a library. To run tests:
 
 ```bash
-zig build client -Dbackend=vulkan -Dvulkan-sdk=/path/to/vulkan-sdk
+zig build test
 ```
+
+To build the engine (if needed):
+
+```bash
+zig build
+```
+
+Note: The game client, server, and simulator are part of the private repository and are not included in this sub-module.
 
 ## Directory Structure
 
