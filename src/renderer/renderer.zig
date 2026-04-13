@@ -1,50 +1,65 @@
-// Renderer abstraction — backend-agnostic interface for the Blood Rift renderer.
+// Renderer abstraction - backend-agnostic DOD render queue interface.
 //
-// Follows the same fat-pointer/vtable pattern as engine/src/network/transport.zig.
-// No Vulkan or backend-specific types cross this boundary.
+// The engine renderer does not know about game entities, effects, or
+// semantics. It receives a flat InstanceData[] sorted by material_id
+// and issues instanced draw calls via SSBO. Zero game types cross this
+// boundary. The game defines what material_id values mean.
 //
 // Design decisions referenced:
-//   §3: Vulkan as first rendering backend, behind an abstraction layer
+//   S3: Vulkan as first rendering backend, behind an abstraction layer
+//   S33: DOD render queue, SSBO instancing, build-time material baking
 
-const Color = @import("../core/types/color.zig").Color;
-
-/// Per-frame camera data passed to beginFrame.
+/// Per-frame camera data. Pushed as a single push constant (64 bytes).
 /// The view-projection matrix is column-major to match Vulkan/GLSL convention.
 /// Obtain from Mat4f: @bitCast(mat4.cols)
-pub const CameraData = struct {
+pub const CameraData = extern struct {
     vp: [16]f32,
 };
 
-/// A single draw call submitted to the renderer.
-pub const DrawCall = struct {
-    vertex_count: u32,
-    instance_count: u32 = 1,
-    first_vertex: u32 = 0,
-    first_instance: u32 = 0,
-    /// Entity world-space position (x, y, z). Passed as push constant.
-    position: [3]f32 = .{ 0, 0, 0 },
-    color: Color = Color.white,
+/// Per-instance data for the render queue. 96 bytes, 16-byte aligned.
+///
+/// The engine does not interpret material_id or custom_data. The game
+/// assigns material_id values and each material's shader interprets
+/// custom_data according to its own layout.
+///
+/// For ground effects: pack radius/time/intensity into unused transform
+/// matrix fields (transform[0].w = radius, transform[1].w = time,
+/// transform[2].w = intensity). The model matrix for a ground effect
+/// is just translation + uniform scale, so 12 matrix floats are unused.
+pub const InstanceData = extern struct {
+    transform: [16]f32, // column-major model matrix
+    color: [4]f32, // RGBA linear color
+    material_id: u16, // pipeline/shader selector (game-assigned)
+    custom_data: u16, // game-defined per-instance payload
+    _pad: [2]u32 = .{ 0, 0 }, // alignment to 96 bytes / 16-byte boundary
 };
 
-/// Ground effect type: aura (swirling noise) or pyre (procedural fire).
-pub const GroundEffectType = enum(u32) {
-    aura = 0,
-    pyre = 1,
+/// A contiguous range of instances sharing the same material_id.
+/// Produced by sorting InstanceData[] by material_id.
+pub const MaterialRange = struct {
+    material_id: u16,
+    first_instance: u32,
+    instance_count: u32,
 };
 
-/// A ground effect draw call (aura or pyre). Uses the blended pipeline.
-pub const GroundCall = struct {
-    /// Effect world-space position (x, y, z).
-    position: [3]f32,
-    color: Color,
-    /// Ground effect radius in world units.
-    radius: f32,
-    /// Elapsed time in seconds for animation.
-    time: f32,
-    /// Effect type: aura or pyre.
-    effect_type: GroundEffectType,
-    /// Visual intensity [0,1]. 1.0 = full, fades toward 0 as effect expires.
-    intensity: f32 = 1.0,
+/// Sorted instance data ready for GPU upload.
+pub const RenderQueue = struct {
+    instances: []const InstanceData,
+    count: usize,
+    ranges: []const MaterialRange,
+    range_count: usize,
+    camera: CameraData,
+};
+
+/// Material definition. Loaded once during engine initialization.
+/// Shader byte-code is a pre-loaded []const u8 slice residing in memory.
+/// The loading mechanism (@embedFile, VFS, .pak archive) is chosen at
+/// init time and never touches disk during the render loop.
+pub const MaterialDef = struct {
+    material_id: u16,
+    vertex_spv: []const u8,
+    fragment_spv: []const u8,
+    blend_enable: bool = false,
 };
 
 /// Runtime vtable-based renderer interface.
@@ -59,10 +74,9 @@ pub const Renderer = struct {
         /// Acquire the next swapchain image and begin recording commands.
         /// camera contains the view-projection matrix for this frame.
         begin_frame_fn: *const fn (ptr: *anyopaque, camera: CameraData) anyerror!void,
-        /// Record a draw call into the active command buffer.
-        submit_draw_call_fn: *const fn (ptr: *anyopaque, dc: DrawCall) anyerror!void,
-        /// Record a ground effect draw call using the blended pipeline.
-        submit_ground_call_fn: *const fn (ptr: *anyopaque, gc: GroundCall) anyerror!void,
+        /// Submit a sorted render queue. The backend uploads instances to
+        /// SSBO, binds per-material pipelines, and issues instanced draws.
+        submit_queue_fn: *const fn (ptr: *anyopaque, queue: RenderQueue) anyerror!void,
         /// End command recording and submit to the graphics queue.
         end_frame_fn: *const fn (ptr: *anyopaque) anyerror!void,
         /// Present the rendered frame to the window surface.
@@ -77,12 +91,8 @@ pub const Renderer = struct {
         return self.vtable.begin_frame_fn(self.ptr, camera);
     }
 
-    pub fn submitDrawCall(self: Renderer, dc: DrawCall) !void {
-        return self.vtable.submit_draw_call_fn(self.ptr, dc);
-    }
-
-    pub fn submitGroundCall(self: Renderer, gc: GroundCall) !void {
-        return self.vtable.submit_ground_call_fn(self.ptr, gc);
+    pub fn submitQueue(self: Renderer, queue: RenderQueue) !void {
+        return self.vtable.submit_queue_fn(self.ptr, queue);
     }
 
     pub fn endFrame(self: Renderer) !void {

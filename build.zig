@@ -52,38 +52,51 @@ pub fn build(b: *std.Build) void {
     });
     const vulkan_module = vulkan_dep.module("vulkan-zig");
 
-    // Compile entity shaders to SPIR-V using glslc.
+    // Compile shaders to SPIR-V using glslc.
     const glslc_path = std.fmt.allocPrint(b.allocator, "{s}/bin/glslc", .{vulkan_sdk}) catch @panic("OOM");
-    const vert_spv = compileShader(b, glslc_path, "src/renderer/shaders/entity.vert");
-    const frag_spv = compileShader(b, glslc_path, "src/renderer/shaders/entity.frag");
-
-    // Compile ground effect shaders to SPIR-V.
-    const ground_vert_spv = compileShader(b, glslc_path, "src/renderer/shaders/ground_effect.vert");
-    const ground_frag_spv = compileShader(b, glslc_path, "src/renderer/shaders/ground_effect.frag");
+    // Instanced entity shaders (DOD render queue).
+    const inst_vert_spv = compileShader(b, glslc_path, "src/renderer/shaders/entity_instanced.vert");
+    const inst_frag_spv = compileShader(b, glslc_path, "src/renderer/shaders/entity_instanced.frag");
+    // Aura shaders (ground effect - swirling noise).
+    const aura_vert_spv = compileShader(b, glslc_path, "src/renderer/shaders/aura.vert");
+    const aura_frag_spv = compileShader(b, glslc_path, "src/renderer/shaders/aura.frag");
+    // Pyre shaders (ground effect - procedural fire).
+    const pyre_vert_spv = compileShader(b, glslc_path, "src/renderer/shaders/pyre.vert");
+    const pyre_frag_spv = compileShader(b, glslc_path, "src/renderer/shaders/pyre.frag");
 
     // Wrap each SPIR-V file in a tiny Zig module that exposes it via @embedFile.
     const shader_wf = b.addWriteFiles();
-    const vert_wrapper = shader_wf.add("vert_spv.zig",
-        \\pub const bytes = @embedFile("entity.vert.spv");
+    const inst_vert_wrapper = shader_wf.add("inst_vert_spv.zig",
+        \\pub const bytes = @embedFile("entity_instanced.vert.spv");
     );
-    const frag_wrapper = shader_wf.add("frag_spv.zig",
-        \\pub const bytes = @embedFile("entity.frag.spv");
+    const inst_frag_wrapper = shader_wf.add("inst_frag_spv.zig",
+        \\pub const bytes = @embedFile("entity_instanced.frag.spv");
     );
-    const ground_vert_wrapper = shader_wf.add("ground_vert_spv.zig",
-        \\pub const bytes = @embedFile("ground_effect.vert.spv");
+    const aura_vert_wrapper = shader_wf.add("aura_vert_spv.zig",
+        \\pub const bytes = @embedFile("aura.vert.spv");
     );
-    const ground_frag_wrapper = shader_wf.add("ground_frag_spv.zig",
-        \\pub const bytes = @embedFile("ground_effect.frag.spv");
+    const aura_frag_wrapper = shader_wf.add("aura_frag_spv.zig",
+        \\pub const bytes = @embedFile("aura.frag.spv");
     );
-    _ = shader_wf.addCopyFile(vert_spv, "entity.vert.spv");
-    _ = shader_wf.addCopyFile(frag_spv, "entity.frag.spv");
-    _ = shader_wf.addCopyFile(ground_vert_spv, "ground_effect.vert.spv");
-    _ = shader_wf.addCopyFile(ground_frag_spv, "ground_effect.frag.spv");
+    const pyre_vert_wrapper = shader_wf.add("pyre_vert_spv.zig",
+        \\pub const bytes = @embedFile("pyre.vert.spv");
+    );
+    const pyre_frag_wrapper = shader_wf.add("pyre_frag_spv.zig",
+        \\pub const bytes = @embedFile("pyre.frag.spv");
+    );
+    _ = shader_wf.addCopyFile(inst_vert_spv, "entity_instanced.vert.spv");
+    _ = shader_wf.addCopyFile(inst_frag_spv, "entity_instanced.frag.spv");
+    _ = shader_wf.addCopyFile(aura_vert_spv, "aura.vert.spv");
+    _ = shader_wf.addCopyFile(aura_frag_spv, "aura.frag.spv");
+    _ = shader_wf.addCopyFile(pyre_vert_spv, "pyre.vert.spv");
+    _ = shader_wf.addCopyFile(pyre_frag_spv, "pyre.frag.spv");
 
-    const vert_module = b.createModule(.{ .root_source_file = vert_wrapper });
-    const frag_module = b.createModule(.{ .root_source_file = frag_wrapper });
-    const ground_vert_module = b.createModule(.{ .root_source_file = ground_vert_wrapper });
-    const ground_frag_module = b.createModule(.{ .root_source_file = ground_frag_wrapper });
+    const inst_vert_module = b.createModule(.{ .root_source_file = inst_vert_wrapper });
+    const inst_frag_module = b.createModule(.{ .root_source_file = inst_frag_wrapper });
+    const aura_vert_module = b.createModule(.{ .root_source_file = aura_vert_wrapper });
+    const aura_frag_module = b.createModule(.{ .root_source_file = aura_frag_wrapper });
+    const pyre_vert_module = b.createModule(.{ .root_source_file = pyre_vert_wrapper });
+    const pyre_frag_module = b.createModule(.{ .root_source_file = pyre_frag_wrapper });
 
     // Expose the engine as a module for the parent build.
     const engine_module = b.addModule("engine", .{
@@ -94,10 +107,12 @@ pub fn build(b: *std.Build) void {
     engine_module.addImport("zflecs", zflecs.module("root"));
     engine_module.addImport("zsdl3", zsdl.module("zsdl3"));
     engine_module.addImport("vulkan", vulkan_module);
-    engine_module.addImport("vert_spv", vert_module);
-    engine_module.addImport("frag_spv", frag_module);
-    engine_module.addImport("ground_vert_spv", ground_vert_module);
-    engine_module.addImport("ground_frag_spv", ground_frag_module);
+    engine_module.addImport("inst_vert_spv", inst_vert_module);
+    engine_module.addImport("inst_frag_spv", inst_frag_module);
+    engine_module.addImport("aura_vert_spv", aura_vert_module);
+    engine_module.addImport("aura_frag_spv", aura_frag_module);
+    engine_module.addImport("pyre_vert_spv", pyre_vert_module);
+    engine_module.addImport("pyre_frag_spv", pyre_frag_module);
     engine_module.addImport("zgui", zgui_module);
     addSdl3IncludePaths(engine_module, target.result.os.tag, sdl3_path);
 
@@ -110,10 +125,12 @@ pub fn build(b: *std.Build) void {
     test_module.addImport("zflecs", zflecs.module("root"));
     test_module.addImport("zsdl3", zsdl.module("zsdl3"));
     test_module.addImport("vulkan", vulkan_module);
-    test_module.addImport("vert_spv", vert_module);
-    test_module.addImport("frag_spv", frag_module);
-    test_module.addImport("ground_vert_spv", ground_vert_module);
-    test_module.addImport("ground_frag_spv", ground_frag_module);
+    test_module.addImport("inst_vert_spv", inst_vert_module);
+    test_module.addImport("inst_frag_spv", inst_frag_module);
+    test_module.addImport("aura_vert_spv", aura_vert_module);
+    test_module.addImport("aura_frag_spv", aura_frag_module);
+    test_module.addImport("pyre_vert_spv", pyre_vert_module);
+    test_module.addImport("pyre_frag_spv", pyre_frag_module);
     test_module.addImport("zgui", zgui_module);
     addSdl3IncludePaths(test_module, target.result.os.tag, sdl3_path);
 

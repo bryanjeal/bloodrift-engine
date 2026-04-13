@@ -1,18 +1,12 @@
 // Vulkan render pass and graphics pipeline.
 //
-// Owns: VkRenderPass, VkPipelineLayout, VkPipeline (entity + ground effect).
-// Shader SPIR-V is embedded at build time via anonymous imports.
-// Callers must call deinit() to release resources.
+// Owns: VkRenderPass (shared across all materials).
+// Material pipelines are created at init via createMaterialPipeline().
+// Shader SPIR-V is loaded once during init from pre-loaded []const u8 slices
+// (no disk I/O in the render loop).
 
 const std = @import("std");
 const vk = @import("vulkan");
-
-// SPIR-V bytecode embedded by the build system.
-// Aligned to u32 as required by Vulkan.
-const vert_spv = @import("vert_spv");
-const frag_spv = @import("frag_spv");
-const ground_vert_spv = @import("ground_vert_spv");
-const ground_frag_spv = @import("ground_frag_spv");
 
 // ============================================================================
 // Types
@@ -24,34 +18,6 @@ pub const PipelineState = struct {
     handle: vk.Pipeline,
 };
 
-/// Entity pipeline push constants: 96 bytes.
-pub const PushData = extern struct {
-    vp: [16]f32,
-    model_pos: [3]f32,
-    _pad: f32 = 0,
-    color: [4]f32,
-};
-
-comptime {
-    std.debug.assert(@sizeOf(PushData) == 96);
-}
-
-/// Ground effect pipeline push constants: 112 bytes.
-pub const GroundPushData = extern struct {
-    vp: [16]f32,
-    model_pos: [3]f32,
-    _pad1: f32 = 0,
-    color: [4]f32,
-    radius: f32,
-    time: f32,
-    effect_type: f32,
-    life_fraction: f32 = 1.0,
-};
-
-comptime {
-    std.debug.assert(@sizeOf(GroundPushData) == 112);
-}
-
 // ============================================================================
 // Init / Deinit
 // ============================================================================
@@ -60,21 +26,46 @@ pub fn init(
     vkd: vk.DeviceWrapper,
     device: vk.Device,
     swapchain_format: vk.Format,
-    extent: vk.Extent2D,
 ) !PipelineState {
     const render_pass = try createRenderPass(vkd, device, swapchain_format);
     errdefer vkd.destroyRenderPass(device, render_pass, null);
+    // Placeholder layout and pipeline for the render pass owner.
+    // Material pipelines are created separately via createMaterialPipeline().
     const push_range = vk.PushConstantRange{
         .stage_flags = .{ .vertex_bit = true },
         .offset = 0,
-        .size = 96,
+        .size = 64, // FramePushData (VP matrix only)
     };
     const layout = try vkd.createPipelineLayout(device, &.{
         .push_constant_range_count = 1,
         .p_push_constant_ranges = @ptrCast(&push_range),
     }, null);
     errdefer vkd.destroyPipelineLayout(device, layout, null);
-    const handle = try createGraphicsPipeline(vkd, device, render_pass, layout, extent, vert_spv, frag_spv, false);
+    // Create a placeholder pipeline that is never used for drawing.
+    // It exists only so PipelineState has valid handles for the render pass owner.
+    // The real pipelines are per-material, created by createMaterialPipeline().
+    const handle = try vkd.createGraphicsPipeline(device, .null_handle, &.{
+        .flags = .{},
+        .stage_count = 0,
+        .p_stages = null,
+        .p_vertex_input_state = null,
+        .p_input_assembly_state = null,
+        .p_tessellation_state = null,
+        .p_viewport_state = null,
+        .p_rasterization_state = null,
+        .p_multisample_state = null,
+        .p_depth_stencil_state = null,
+        .p_color_blend_state = null,
+        .p_dynamic_state = null,
+        .layout = layout,
+        .render_pass = render_pass,
+        .subpass = 0,
+        .base_pipeline_handle = .null_handle,
+        .base_pipeline_index = -1,
+    }, null) catch |err| switch (err) {
+        error.invalid_shader => return error.PlaceholderPipelineFailed,
+        else => |e| return e,
+    };
     return .{ .render_pass = render_pass, .layout = layout, .handle = handle };
 }
 
@@ -85,33 +76,41 @@ pub fn deinit(state: *PipelineState, vkd: vk.DeviceWrapper, device: vk.Device) v
     state.* = undefined;
 }
 
-/// Create a second pipeline for ground effects with alpha blending and extended push constants.
-/// Shares the same render pass as the entity pipeline.
-pub fn initGround(
+/// Create a material pipeline from pre-loaded SPIR-V byte slices.
+/// `vertex_spv` and `fragment_spv` are []const u8 slices already in memory
+/// (loaded at init time from @embedFile, VFS, or .pak archive).
+/// `blended` enables alpha blending for transparent materials.
+/// `pipeline_layout` must include the SSBO descriptor set layout and push constants.
+/// Returns the created VkPipeline (caller owns it).
+pub fn createMaterialPipeline(
     vkd: vk.DeviceWrapper,
     device: vk.Device,
     render_pass: vk.RenderPass,
+    pipeline_layout: vk.PipelineLayout,
     extent: vk.Extent2D,
-) !PipelineState {
-    const push_range = vk.PushConstantRange{
-        .stage_flags = .{ .vertex_bit = true },
-        .offset = 0,
-        .size = @sizeOf(GroundPushData),
-    };
-    const layout = try vkd.createPipelineLayout(device, &.{
-        .push_constant_range_count = 1,
-        .p_push_constant_ranges = @ptrCast(&push_range),
-    }, null);
-    errdefer vkd.destroyPipelineLayout(device, layout, null);
-    const handle = try createGraphicsPipeline(vkd, device, render_pass, layout, extent, ground_vert_spv, ground_frag_spv, true);
-    return .{ .render_pass = .null_handle, .layout = layout, .handle = handle };
-}
+    vertex_spv: []const u8,
+    fragment_spv: []const u8,
+    blended: bool,
+) !vk.Pipeline {
+    // Align SPIR-V bytes for Vulkan (requires u32 alignment).
+    const vert_bytes align(@alignOf(u32)) = vertex_spv;
+    const frag_bytes align(@alignOf(u32)) = fragment_spv;
 
-pub fn deinitGround(state: *PipelineState, vkd: vk.DeviceWrapper, device: vk.Device) void {
-    vkd.destroyPipeline(device, state.handle, null);
-    vkd.destroyPipelineLayout(device, state.layout, null);
-    // render_pass is owned by the entity pipeline, not this one.
-    state.* = undefined;
+    const vert_module = try createShaderModule(vkd, device, vert_bytes);
+    defer vkd.destroyShaderModule(device, vert_module, null);
+    const frag_module = try createShaderModule(vkd, device, frag_bytes);
+    defer vkd.destroyShaderModule(device, frag_module, null);
+
+    return createGraphicsPipelineFromModules(
+        vkd,
+        device,
+        render_pass,
+        pipeline_layout,
+        extent,
+        vert_module,
+        frag_module,
+        blended,
+    );
 }
 
 // ============================================================================
@@ -173,32 +172,23 @@ fn createShaderModule(vkd: vk.DeviceWrapper, device: vk.Device, code: []align(@a
 // Graphics pipeline
 // ============================================================================
 
-fn createGraphicsPipeline(
+fn createGraphicsPipelineFromModules(
     vkd: vk.DeviceWrapper,
     device: vk.Device,
     render_pass: vk.RenderPass,
     layout: vk.PipelineLayout,
     extent: vk.Extent2D,
-    comptime vert_mod: type,
-    comptime frag_mod: type,
+    vert_module: vk.ShaderModule,
+    frag_module: vk.ShaderModule,
     blended: bool,
 ) !vk.Pipeline {
-    // Copy embedded bytes to u32-aligned stack variable as required by Vulkan.
-    const vert_bytes align(@alignOf(u32)) = vert_mod.bytes.*;
-    const frag_bytes align(@alignOf(u32)) = frag_mod.bytes.*;
-
-    const vert_module = try createShaderModule(vkd, device, &vert_bytes);
-    defer vkd.destroyShaderModule(device, vert_module, null);
-    const frag_module = try createShaderModule(vkd, device, &frag_bytes);
-    defer vkd.destroyShaderModule(device, frag_module, null);
-
     const stages = [_]vk.PipelineShaderStageCreateInfo{
         .{ .stage = .{ .vertex_bit = true }, .module = vert_module, .p_name = "main" },
         .{ .stage = .{ .fragment_bit = true }, .module = frag_module, .p_name = "main" },
     };
     const vertex_binding = vk.VertexInputBindingDescription{
         .binding = 0,
-        .stride = 2 * @sizeOf(f32), // vec2 position per vertex
+        .stride = 2 * @sizeOf(f32), // vec2 position per vertex (unit quad)
         .input_rate = .vertex,
     };
     const vertex_attrib = vk.VertexInputAttributeDescription{
@@ -253,7 +243,7 @@ fn createGraphicsPipeline(
         .alpha_to_coverage_enable = vk.FALSE,
         .alpha_to_one_enable = vk.FALSE,
     };
-    // Ground effects use alpha blending; entity pipeline stays opaque.
+    // Blended materials use alpha blending; opaque materials write directly.
     const blend_attachment = vk.PipelineColorBlendAttachmentState{
         .blend_enable = if (blended) vk.TRUE else vk.FALSE,
         .src_color_blend_factor = if (blended) .src_alpha else .one,
