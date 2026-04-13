@@ -29,7 +29,7 @@ pub fn init(
 ) !PipelineState {
     const render_pass = try createRenderPass(vkd, device, swapchain_format);
     errdefer vkd.destroyRenderPass(device, render_pass, null);
-    // Placeholder layout and pipeline for the render pass owner.
+    // Placeholder layout for the render pass owner.
     // Material pipelines are created separately via createMaterialPipeline().
     const push_range = vk.PushConstantRange{
         .stage_flags = .{ .vertex_bit = true },
@@ -41,36 +41,13 @@ pub fn init(
         .p_push_constant_ranges = @ptrCast(&push_range),
     }, null);
     errdefer vkd.destroyPipelineLayout(device, layout, null);
-    // Create a placeholder pipeline that is never used for drawing.
-    // It exists only so PipelineState has valid handles for the render pass owner.
-    // The real pipelines are per-material, created by createMaterialPipeline().
-    const handle = try vkd.createGraphicsPipeline(device, .null_handle, &.{
-        .flags = .{},
-        .stage_count = 0,
-        .p_stages = null,
-        .p_vertex_input_state = null,
-        .p_input_assembly_state = null,
-        .p_tessellation_state = null,
-        .p_viewport_state = null,
-        .p_rasterization_state = null,
-        .p_multisample_state = null,
-        .p_depth_stencil_state = null,
-        .p_color_blend_state = null,
-        .p_dynamic_state = null,
-        .layout = layout,
-        .render_pass = render_pass,
-        .subpass = 0,
-        .base_pipeline_handle = .null_handle,
-        .base_pipeline_index = -1,
-    }, null) catch |err| switch (err) {
-        error.invalid_shader => return error.PlaceholderPipelineFailed,
-        else => |e| return e,
-    };
-    return .{ .render_pass = render_pass, .layout = layout, .handle = handle };
+    // Null pipeline handle - real pipelines are per-material, created by
+    // createMaterialPipeline(). This placeholder is never used for drawing.
+    return .{ .render_pass = render_pass, .layout = layout, .handle = .null_handle };
 }
 
 pub fn deinit(state: *PipelineState, vkd: vk.DeviceWrapper, device: vk.Device) void {
-    vkd.destroyPipeline(device, state.handle, null);
+    if (state.handle != .null_handle) vkd.destroyPipeline(device, state.handle, null);
     vkd.destroyPipelineLayout(device, state.layout, null);
     vkd.destroyRenderPass(device, state.render_pass, null);
     state.* = undefined;
@@ -93,8 +70,8 @@ pub fn createMaterialPipeline(
     blended: bool,
 ) !vk.Pipeline {
     // Align SPIR-V bytes for Vulkan (requires u32 alignment).
-    const vert_bytes align(@alignOf(u32)) = vertex_spv;
-    const frag_bytes align(@alignOf(u32)) = fragment_spv;
+    const vert_bytes: []align(@alignOf(u32)) const u8 = @alignCast(vertex_spv);
+    const frag_bytes: []align(@alignOf(u32)) const u8 = @alignCast(fragment_spv);
 
     const vert_module = try createShaderModule(vkd, device, vert_bytes);
     defer vkd.destroyShaderModule(device, vert_module, null);

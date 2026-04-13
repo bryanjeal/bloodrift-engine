@@ -4,13 +4,13 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // SDL3 path — only needed on Windows where SDL3 isn't system-installed.
+    // SDL3 path - only needed on Windows where SDL3 isn't system-installed.
     const sdl3_path = b.option([]const u8, "sdl3", "Path to SDL3 (Windows only)") orelse
         b.graph.env_map.get("SDL3_DIR") orelse
         probeSdl3();
 
-    // Vulkan SDK path — used for vk.xml (code generation) and glslc (shader compilation).
-    // Resolved from: -Dvulkan-sdk option → VULKAN_SDK env var → platform-specific probe.
+    // Vulkan SDK path - used for vk.xml (code generation) and glslc (shader compilation).
+    // Resolved from: -Dvulkan-sdk option -> VULKAN_SDK env var -> platform-specific probe.
     const vulkan_sdk = b.option([]const u8, "vulkan-sdk", "Path to Vulkan SDK") orelse
         b.graph.env_map.get("VULKAN_SDK") orelse
         probeVulkanSdk(b.allocator) orelse
@@ -28,7 +28,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // zgui (Dear ImGui) — SDL3 + Vulkan backend for debug overlays.
+    // zgui (Dear ImGui) - SDL3 + Vulkan backend for debug overlays.
     const vulkan_include_path = std.fmt.allocPrint(b.allocator, "{s}/include", .{vulkan_sdk}) catch @panic("OOM");
     const zgui_dep = b.dependency("zgui", .{
         .target = target,
@@ -46,59 +46,15 @@ pub fn build(b: *std.Build) void {
 
     // Vulkan bindings (generates idiomatic Zig from vk.xml at build time).
     // Uses vendored vk.xml (1.3.296) because vulkan-zig at bed9e2d cannot parse 1.4 registry.
-    // The vendored registry is only for code generation — runtime uses the installed SDK.
+    // The vendored registry is only for code generation - runtime uses the installed SDK.
     const vulkan_dep = b.dependency("vulkan", .{
         .registry = @as(std.Build.LazyPath, .{ .cwd_relative = b.pathFromRoot("vendor/vulkan/vk.xml") }),
     });
     const vulkan_module = vulkan_dep.module("vulkan-zig");
 
-    // Compile shaders to SPIR-V using glslc.
-    const glslc_path = std.fmt.allocPrint(b.allocator, "{s}/bin/glslc", .{vulkan_sdk}) catch @panic("OOM");
-    // Instanced entity shaders (DOD render queue).
-    const inst_vert_spv = compileShader(b, glslc_path, "src/renderer/shaders/entity_instanced.vert");
-    const inst_frag_spv = compileShader(b, glslc_path, "src/renderer/shaders/entity_instanced.frag");
-    // Aura shaders (ground effect - swirling noise).
-    const aura_vert_spv = compileShader(b, glslc_path, "src/renderer/shaders/aura.vert");
-    const aura_frag_spv = compileShader(b, glslc_path, "src/renderer/shaders/aura.frag");
-    // Pyre shaders (ground effect - procedural fire).
-    const pyre_vert_spv = compileShader(b, glslc_path, "src/renderer/shaders/pyre.vert");
-    const pyre_frag_spv = compileShader(b, glslc_path, "src/renderer/shaders/pyre.frag");
-
-    // Wrap each SPIR-V file in a tiny Zig module that exposes it via @embedFile.
-    const shader_wf = b.addWriteFiles();
-    const inst_vert_wrapper = shader_wf.add("inst_vert_spv.zig",
-        \\pub const bytes = @embedFile("entity_instanced.vert.spv");
-    );
-    const inst_frag_wrapper = shader_wf.add("inst_frag_spv.zig",
-        \\pub const bytes = @embedFile("entity_instanced.frag.spv");
-    );
-    const aura_vert_wrapper = shader_wf.add("aura_vert_spv.zig",
-        \\pub const bytes = @embedFile("aura.vert.spv");
-    );
-    const aura_frag_wrapper = shader_wf.add("aura_frag_spv.zig",
-        \\pub const bytes = @embedFile("aura.frag.spv");
-    );
-    const pyre_vert_wrapper = shader_wf.add("pyre_vert_spv.zig",
-        \\pub const bytes = @embedFile("pyre.vert.spv");
-    );
-    const pyre_frag_wrapper = shader_wf.add("pyre_frag_spv.zig",
-        \\pub const bytes = @embedFile("pyre.frag.spv");
-    );
-    _ = shader_wf.addCopyFile(inst_vert_spv, "entity_instanced.vert.spv");
-    _ = shader_wf.addCopyFile(inst_frag_spv, "entity_instanced.frag.spv");
-    _ = shader_wf.addCopyFile(aura_vert_spv, "aura.vert.spv");
-    _ = shader_wf.addCopyFile(aura_frag_spv, "aura.frag.spv");
-    _ = shader_wf.addCopyFile(pyre_vert_spv, "pyre.vert.spv");
-    _ = shader_wf.addCopyFile(pyre_frag_spv, "pyre.frag.spv");
-
-    const inst_vert_module = b.createModule(.{ .root_source_file = inst_vert_wrapper });
-    const inst_frag_module = b.createModule(.{ .root_source_file = inst_frag_wrapper });
-    const aura_vert_module = b.createModule(.{ .root_source_file = aura_vert_wrapper });
-    const aura_frag_module = b.createModule(.{ .root_source_file = aura_frag_wrapper });
-    const pyre_vert_module = b.createModule(.{ .root_source_file = pyre_vert_wrapper });
-    const pyre_frag_module = b.createModule(.{ .root_source_file = pyre_frag_wrapper });
-
     // Expose the engine as a module for the parent build.
+    // The engine does NOT compile or embed any game shaders.
+    // Game code compiles its own shaders and passes SPIR-V bytes via MaterialDef[].
     const engine_module = b.addModule("engine", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -107,12 +63,6 @@ pub fn build(b: *std.Build) void {
     engine_module.addImport("zflecs", zflecs.module("root"));
     engine_module.addImport("zsdl3", zsdl.module("zsdl3"));
     engine_module.addImport("vulkan", vulkan_module);
-    engine_module.addImport("inst_vert_spv", inst_vert_module);
-    engine_module.addImport("inst_frag_spv", inst_frag_module);
-    engine_module.addImport("aura_vert_spv", aura_vert_module);
-    engine_module.addImport("aura_frag_spv", aura_frag_module);
-    engine_module.addImport("pyre_vert_spv", pyre_vert_module);
-    engine_module.addImport("pyre_frag_spv", pyre_frag_module);
     engine_module.addImport("zgui", zgui_module);
     addSdl3IncludePaths(engine_module, target.result.os.tag, sdl3_path);
 
@@ -125,12 +75,6 @@ pub fn build(b: *std.Build) void {
     test_module.addImport("zflecs", zflecs.module("root"));
     test_module.addImport("zsdl3", zsdl.module("zsdl3"));
     test_module.addImport("vulkan", vulkan_module);
-    test_module.addImport("inst_vert_spv", inst_vert_module);
-    test_module.addImport("inst_frag_spv", inst_frag_module);
-    test_module.addImport("aura_vert_spv", aura_vert_module);
-    test_module.addImport("aura_frag_spv", aura_frag_module);
-    test_module.addImport("pyre_vert_spv", pyre_vert_module);
-    test_module.addImport("pyre_frag_spv", pyre_frag_module);
     test_module.addImport("zgui", zgui_module);
     addSdl3IncludePaths(test_module, target.result.os.tag, sdl3_path);
 
@@ -146,17 +90,6 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run engine tests");
     test_step.dependOn(&run_engine_tests.step);
-}
-
-/// Compile a GLSL shader to SPIR-V using glslc.
-fn compileShader(b: *std.Build, glslc: []const u8, src: []const u8) std.Build.LazyPath {
-    const ext = std.fs.path.extension(src); // ".vert" or ".frag"
-    const out_name = std.fmt.allocPrint(b.allocator, "{s}.spv", .{std.fs.path.basename(src)}) catch @panic("OOM");
-    _ = ext;
-    const cmd = b.addSystemCommand(&.{ glslc, "--target-env=vulkan1.2", "-o" });
-    const spv = cmd.addOutputFileArg(out_name);
-    cmd.addFileArg(b.path(src));
-    return spv;
 }
 
 /// Add SDL3 C include paths to a module (needed for @cImport in backend.zig).
@@ -228,7 +161,7 @@ pub fn linkVulkan(step: *std.Build.Step.Compile, vulkan_sdk: []const u8) void {
     }
 }
 
-/// Probe known SDL3 install locations. Only needed on Windows — macOS/Linux use system paths.
+/// Probe known SDL3 install locations. Only needed on Windows - macOS/Linux use system paths.
 fn probeSdl3() ?[]const u8 {
     const builtin = @import("builtin");
     if (comptime builtin.os.tag != .windows) return null;
@@ -247,7 +180,7 @@ fn probeSdl3() ?[]const u8 {
 /// On Windows: C:/VulkanSDK/<version>  (e.g. C:/VulkanSDK/1.4.341.1)
 /// On macOS:   ~/VulkanSDK/<version>/macOS
 /// On Linux:   system paths (no version subdir needed)
-/// Returns null if no SDK found — caller should @panic with a helpful message.
+/// Returns null if no SDK found - caller should @panic with a helpful message.
 fn probeVulkanSdk(allocator: std.mem.Allocator) ?[]const u8 {
     const builtin = @import("builtin");
 
@@ -304,12 +237,10 @@ fn probeVersionedDir(allocator: std.mem.Allocator, parent: []const u8, suffix: ?
         defer allocator.free(check_path);
 
         if (std.fs.cwd().statFile(check_path)) |_| {
-            // Valid candidate — keep it if it's lexicographically greater than best.
+            // Valid candidate - keep it if it's lexicographically greater than best.
             if (best) |prev| {
                 if (std.mem.order(u8, entry.name, prev) == .gt) {
-                    // prev was allocated with the build allocator — no need to free (arena).
                     best = entry.name;
-                    // Return the latest candidate at end.
                 } else {
                     allocator.free(candidate);
                     continue;

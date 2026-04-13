@@ -322,6 +322,7 @@ pub const VulkanBackend = struct {
             0,
             1,
             @ptrCast(&self.descriptor_set),
+            0,
             null,
         );
     }
@@ -338,11 +339,12 @@ pub const VulkanBackend = struct {
         const upload_size = queue.count * @sizeOf(renderer_mod.InstanceData);
         @memcpy(self.instance_buffer_ptr[0..upload_size], @as([*]const u8, @ptrCast(queue.instances.ptr))[0..upload_size]);
         // Flush for host-coherent memory (ensures GPU sees the writes).
-        vkd.flushMappedMemoryRange(dev, &.{
+        const flush_range = vk.MappedMemoryRange{
             .memory = self.instance_buffer_memory,
             .offset = 0,
             .size = upload_size,
-        }) catch {};
+        };
+        vkd.flushMappedMemoryRanges(dev, 1, @ptrCast(&flush_range)) catch {};
 
         // Push VP matrix as a single push constant.
         const push = FramePushData{ .vp = self.current_vp };
@@ -632,7 +634,9 @@ fn createInstanceDescriptor(
         .dst_array_element = 0,
         .descriptor_count = 1,
         .descriptor_type = .storage_buffer,
+        .p_image_info = undefined,
         .p_buffer_info = @ptrCast(&buf_info),
+        .p_texel_buffer_view = undefined,
     }}, 0, null);
 
     return .{ .layout = layout, .pool = pool, .set = set };
