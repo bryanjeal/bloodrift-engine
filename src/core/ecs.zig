@@ -9,9 +9,9 @@
 //   - Single-threaded by default. Threading is a future optimization.
 //   - Assert-heavy lifecycle management.
 //   - EntityId (u64) is the same type as zflecs entity_t.
+//   - Raw zflecs bindings are re-exported as World.zflecs for advanced use.
 
 const std = @import("std");
-pub const zflecs = @import("zflecs");
 const types = @import("types/root.zig");
 const EntityId = types.EntityId;
 
@@ -23,6 +23,10 @@ const EntityId = types.EntityId;
 ///   - Single-threaded: do not call from multiple threads.
 pub const World = struct {
     raw: *zflecs.world_t,
+
+    /// Re-export raw zflecs bindings for advanced use (observers, queries,
+    /// custom iterators). Prefer World methods for common operations.
+    pub const zflecs = @import("zflecs");
 
     /// Create a new Flecs world, configured for single-threaded deterministic
     /// simulation. The world must be destroyed with deinit().
