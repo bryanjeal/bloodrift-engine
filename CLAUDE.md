@@ -77,6 +77,26 @@ zig build run
 
 The `zig build run` step calls `setEnvironmentVariable` for both vars using the `vulkan-sdk` build option (defaults to `VULKAN_SDK` env var, then a known local path).
 
+## ECS Module (core/ecs.zig)
+
+The `World` struct wraps Flecs lifecycle and common operations. Raw zflecs bindings are re-exported as `World.zflecs` for advanced use (observers, custom queries, iterators). Game code should prefer `World` methods for common operations and use `World.zflecs` only when the wrapper doesn't provide what's needed.
+
+```zig
+const World = @import("engine").core.ecs.World;
+const zflecs = World.zflecs; // raw bindings for observers, etc.
+
+// Common operations via World methods:
+world.registerComponent(MyComponent);
+world.setComponent(entity, MyComponent, .{ .field = value });
+const comp = world.getComponent(entity, MyComponent);
+
+// Advanced operations via raw zflecs:
+var desc: zflecs.observer_desc_t = .{ .callback = myCallback };
+desc.events[0] = zflecs.OnAdd;
+desc.query.terms[0] = .{ .id = zflecs.id(MyComponent) };
+_ = zflecs.observer_init(world.raw, &desc);
+```
+
 ## Zig 0.15.2 Compatibility Notes
 
 - Use vulkan-zig commit `bed9e2d` — latest master uses `std.process.Init` not in 0.15.2
