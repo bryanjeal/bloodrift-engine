@@ -159,33 +159,61 @@ pub const World = struct {
         zflecs.add_pair(self.raw, entity, zflecs.IsA, base);
     }
 
-    /// Iterate all entities that have component T, calling cb for each.
+    /// Iterate all entities that have component T, calling cb once per archetype chunk.
+    ///
+    /// The callback receives full entity and component slices for each chunk, enabling
+    /// SoA-style processing. Prefab archetypes are excluded at query level so the
+    /// callback is never invoked for prefab entities.
+    ///
+    /// Precondition: T must be registered via registerComponent before calling.
+    /// Precondition: cb must not mutate the world (no setComponent/newEntity/deleteEntity).
+    pub fn eachChunk(
+        self: *World,
+        comptime T: type,
+        ctx: *anyopaque,
+        cb: *const fn (ctx: *anyopaque, entities: []const EntityId, comps: []const T) void,
+    ) void {
+        var desc: zflecs.query_desc_t = .{};
+        desc.terms[0] = .{ .id = zflecs.id(T) };
+        desc.terms[1] = .{ .id = zflecs.Prefab, .oper = .Not };
+        const query = zflecs.query_init(self.raw, &desc) catch @panic("eachChunk: query_init failed");
+        defer zflecs.query_fini(query);
+        var it = zflecs.query_iter(self.raw, query);
+        while (zflecs.query_next(&it)) {
+            const comps = zflecs.field(&it, T, 0) orelse continue;
+            const ents = it.entities();
+            std.debug.assert(comps.len == ents.len);
+            cb(ctx, ents, comps);
+        }
+    }
+
+    /// Iterate all entities that have component T, calling cb for each entity.
     ///
     /// ctx is passed through to cb unchanged — use a pointer to local state
     /// to capture variables without heap allocation. Prefab entities are
-    /// excluded by Flecs and will not be visited.
-    /// Iterate all entities that have component T, calling cb for each.
+    /// excluded at query level and will not be visited.
     ///
-    /// ctx is passed through to cb unchanged — use a pointer to local state
-    /// to capture variables without heap allocation. Prefab entities (those
-    /// with EcsPrefab) are excluded and will not be visited.
+    /// Delegates to eachChunk internally. Prefer eachChunk for hot paths where
+    /// SoA slice processing or autovectorization is beneficial.
     pub fn each(
         self: *World,
         comptime T: type,
         ctx: *anyopaque,
         cb: *const fn (ctx: *anyopaque, entity: EntityId, comp: *const T) void,
     ) void {
-        var it = zflecs.each(self.raw, T);
-        while (zflecs.each_next(&it)) {
-            const comps = zflecs.field(&it, T, 0) orelse continue;
-            const ents = it.entities();
-            std.debug.assert(comps.len == ents.len);
-            for (ents, comps) |entity, *comp| {
-                // Skip prefab entities — they are templates, not live game entities.
-                if (zflecs.has_id(self.raw, entity, zflecs.Prefab)) continue;
-                cb(ctx, entity, comp);
+        const Wrapper = struct {
+            inner_ctx: *anyopaque,
+            inner_cb: *const fn (*anyopaque, EntityId, *const T) void,
+        };
+        var wrapper = Wrapper{ .inner_ctx = ctx, .inner_cb = cb };
+        self.eachChunk(T, @ptrCast(&wrapper), struct {
+            fn run(raw: *anyopaque, entities: []const EntityId, comps: []const T) void {
+                const w: *Wrapper = @ptrCast(@alignCast(raw));
+                for (entities, comps) |entity, *comp| {
+                    w.inner_cb(w.inner_ctx, entity, comp);
+                }
             }
-        }
+        }.run);
     }
 };
 
@@ -463,4 +491,129 @@ test "World: create and delete many entities" {
     for (ids[count / 2 ..]) |eid| {
         try std.testing.expect(world.isAlive(eid));
     }
+}
+
+// ============================================================================
+// World.eachChunk() tests
+// ============================================================================
+
+const EachChunkCtx = struct {
+    call_count: u32,
+    total_visited: u32,
+    last_x: i64,
+};
+
+fn eachChunkCallback(ctx: *anyopaque, entities: []const EntityId, comps: []const TestPosition) void {
+    const c: *EachChunkCtx = @ptrCast(@alignCast(ctx));
+    c.call_count += 1;
+    c.total_visited += @as(u32, @intCast(entities.len));
+    if (comps.len > 0) c.last_x = comps[comps.len - 1].x;
+}
+
+test "World.eachChunk: empty world — cb never called" {
+    var world = World.init();
+    defer world.deinit();
+
+    world.registerComponent(TestPosition);
+
+    var ctx = EachChunkCtx{ .call_count = 0, .total_visited = 0, .last_x = 0 };
+    world.eachChunk(TestPosition, @ptrCast(&ctx), eachChunkCallback);
+    try std.testing.expectEqual(@as(u32, 0), ctx.total_visited);
+}
+
+test "World.eachChunk: one entity — cb called with slice of length 1" {
+    var world = World.init();
+    defer world.deinit();
+
+    world.registerComponent(TestPosition);
+    const e = world.newEntity();
+    world.setComponent(e, TestPosition, .{ .x = 77, .y = 0 });
+
+    var ctx = EachChunkCtx{ .call_count = 0, .total_visited = 0, .last_x = 0 };
+    world.eachChunk(TestPosition, @ptrCast(&ctx), eachChunkCallback);
+
+    try std.testing.expectEqual(@as(u32, 1), ctx.total_visited);
+    try std.testing.expectEqual(@as(i64, 77), ctx.last_x);
+}
+
+test "World.eachChunk: N entities — all visited" {
+    var world = World.init();
+    defer world.deinit();
+
+    world.registerComponent(TestPosition);
+
+    const n: u32 = 10;
+    for (0..n) |i| {
+        const e = world.newEntity();
+        world.setComponent(e, TestPosition, .{ .x = @intCast(i), .y = 0 });
+    }
+
+    var ctx = EachChunkCtx{ .call_count = 0, .total_visited = 0, .last_x = 0 };
+    world.eachChunk(TestPosition, @ptrCast(&ctx), eachChunkCallback);
+
+    try std.testing.expectEqual(n, ctx.total_visited);
+}
+
+test "World.eachChunk: prefab entity excluded" {
+    var world = World.init();
+    defer world.deinit();
+
+    world.registerComponent(TestPosition);
+
+    // Spawn two live entities and one prefab — only live entities should be visited.
+    const e1 = world.newEntity();
+    world.setComponent(e1, TestPosition, .{ .x = 1, .y = 0 });
+    const e2 = world.newEntity();
+    world.setComponent(e2, TestPosition, .{ .x = 2, .y = 0 });
+    const prefab = world.newPrefab("ChunkTestPrefab");
+    world.setComponent(prefab, TestPosition, .{ .x = 999, .y = 0 });
+
+    var ctx = EachChunkCtx{ .call_count = 0, .total_visited = 0, .last_x = 0 };
+    world.eachChunk(TestPosition, @ptrCast(&ctx), eachChunkCallback);
+
+    try std.testing.expectEqual(@as(u32, 2), ctx.total_visited);
+}
+
+test "World.eachChunk: equivalence with each for single archetype" {
+    var world = World.init();
+    defer world.deinit();
+
+    world.registerComponent(TestPosition);
+
+    const n: u32 = 5;
+    for (0..n) |i| {
+        const e = world.newEntity();
+        world.setComponent(e, TestPosition, .{ .x = @intCast(i * 10), .y = 0 });
+    }
+
+    // Collect via each
+    var each_sum: i64 = 0;
+    var each_count: u32 = 0;
+    const EachSumCtx = struct { sum: *i64, count: *u32 };
+    var sum_ctx = EachSumCtx{ .sum = &each_sum, .count = &each_count };
+    world.each(TestPosition, @ptrCast(&sum_ctx), struct {
+        fn cb(raw: *anyopaque, _: EntityId, comp: *const TestPosition) void {
+            const c: *EachSumCtx = @ptrCast(@alignCast(raw));
+            c.sum.* += comp.x;
+            c.count.* += 1;
+        }
+    }.cb);
+
+    // Collect via eachChunk
+    var chunk_sum: i64 = 0;
+    var chunk_count: u32 = 0;
+    const ChunkSumCtx = struct { sum: *i64, count: *u32 };
+    var csum_ctx = ChunkSumCtx{ .sum = &chunk_sum, .count = &chunk_count };
+    world.eachChunk(TestPosition, @ptrCast(&csum_ctx), struct {
+        fn cb(raw: *anyopaque, _: []const EntityId, comps: []const TestPosition) void {
+            const c: *ChunkSumCtx = @ptrCast(@alignCast(raw));
+            for (comps) |comp| {
+                c.sum.* += comp.x;
+                c.count.* += 1;
+            }
+        }
+    }.cb);
+
+    try std.testing.expectEqual(each_count, chunk_count);
+    try std.testing.expectEqual(each_sum, chunk_sum);
 }
