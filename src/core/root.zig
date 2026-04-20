@@ -25,4 +25,5 @@ test {
     _ = random;
     _ = ecs;
     _ = sidecar_store;
+    _ = @import("sidecar_store_test.zig");
 }
