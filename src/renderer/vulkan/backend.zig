@@ -30,17 +30,17 @@ const c = @cImport({
 
 // Unit quad: two triangles covering a 1x1 world-space square centred at origin.
 // The VP matrix push constant and per-instance SSBO data place it in screen space.
-const QUAD_VERTS = [12]f32{
+const quad_verts = [12]f32{
     -0.5, -0.5, 0.5, -0.5, 0.5,  0.5,
     -0.5, -0.5, 0.5, 0.5,  -0.5, 0.5,
 };
 
 /// Maximum number of instances the SSBO can hold.
-/// 10,000 instances * 96 bytes = 960 KB. Trivial for host-visible memory.
-pub const MAX_INSTANCES: u32 = 10_000;
+/// ~2 million instances * 96 bytes = 201,326,592 KB (~201 MB). Trivial for host-visible memory.
+pub const max_instances: u32 = 1 << 21;
 
 /// Maximum number of material pipelines that can be registered.
-pub const MAX_MATERIALS: usize = 64;
+pub const max_materials: usize = 64;
 
 /// SSBO push constant layout: VP matrix only (64 bytes, vertex stage).
 const FramePushData = extern struct {
@@ -71,8 +71,8 @@ pub const VulkanBackend = struct {
     descriptor_set_layout: vk.DescriptorSetLayout,
     descriptor_set: vk.DescriptorSet,
     // Material pipelines: indexed by material_id (game-assigned u16).
-    material_pipelines: [MAX_MATERIALS]vk.Pipeline,
-    material_layouts: [MAX_MATERIALS]vk.PipelineLayout,
+    material_pipelines: [max_materials]vk.Pipeline,
+    material_layouts: [max_materials]vk.PipelineLayout,
     material_count: usize,
     // Per-frame state (valid between beginFrame and present).
     current_frame: u32,
@@ -153,7 +153,7 @@ pub const VulkanBackend = struct {
             dev.vkd,
             dev.handle,
             dev.physical,
-            MAX_INSTANCES * @sizeOf(renderer_mod.InstanceData),
+            max_instances * @sizeOf(renderer_mod.InstanceData),
         );
         errdefer {
             dev.vkd.destroyBuffer(dev.handle, ssbo.buffer, null);
@@ -172,11 +172,11 @@ pub const VulkanBackend = struct {
         }
 
         // Create per-material pipelines from the pre-loaded MaterialDef slice.
-        var mat_pipelines: [MAX_MATERIALS]vk.Pipeline = undefined;
-        var mat_layouts: [MAX_MATERIALS]vk.PipelineLayout = undefined;
+        var mat_pipelines: [max_materials]vk.Pipeline = undefined;
+        var mat_layouts: [max_materials]vk.PipelineLayout = undefined;
         var mat_count: usize = 0;
         for (materials) |mat| {
-            if (mat_count >= MAX_MATERIALS) break;
+            if (mat_count >= max_materials) break;
             const push_range = vk.PushConstantRange{
                 .stage_flags = .{ .vertex_bit = true },
                 .offset = 0,
@@ -202,7 +202,7 @@ pub const VulkanBackend = struct {
             );
             errdefer dev.vkd.destroyPipeline(dev.handle, pipeline, null);
             // Pipeline stored at the material_id index for O(1) lookup.
-            std.debug.assert(mat.material_id < MAX_MATERIALS);
+            std.debug.assert(mat.material_id < max_materials);
             mat_pipelines[mat.material_id] = pipeline;
             mat_layouts[mat.material_id] = layout;
             mat_count += 1;
@@ -223,7 +223,7 @@ pub const VulkanBackend = struct {
             .queue = @ptrFromInt(@intFromEnum(dev.graphics_queue)),
             .descriptor_pool = @ptrFromInt(@intFromEnum(imgui_pool)),
             .render_pass = @ptrFromInt(@intFromEnum(pip.render_pass)),
-            .min_image_count = commands_mod.MAX_FRAMES_IN_FLIGHT,
+            .min_image_count = commands_mod.max_frames_in_flight,
             .image_count = @intCast(sc.image_views.len),
         }, @ptrCast(window));
 
@@ -360,7 +360,7 @@ pub const VulkanBackend = struct {
         // Draw each material range with its own pipeline.
         var prev_material: u16 = std.math.maxInt(u16);
         for (queue.ranges[0..queue.range_count]) |range| {
-            std.debug.assert(range.material_id < MAX_MATERIALS);
+            std.debug.assert(range.material_id < max_materials);
             // Bind pipeline only when material changes (sorted data guarantees
             // each material range is contiguous).
             if (range.material_id != prev_material) {
@@ -401,7 +401,7 @@ pub const VulkanBackend = struct {
             .p_swapchains = @ptrCast(&self.swapchain.handle),
             .p_image_indices = @ptrCast(&self.current_image),
         });
-        self.current_frame = (self.current_frame + 1) % commands_mod.MAX_FRAMES_IN_FLIGHT;
+        self.current_frame = (self.current_frame + 1) % commands_mod.max_frames_in_flight;
     }
 
     /// Recreate swapchain and framebuffers for a new window size.
@@ -520,7 +520,7 @@ fn createVertexBuffer(
     device: vk.Device,
     physical: vk.PhysicalDevice,
 ) !struct { buffer: vk.Buffer, memory: vk.DeviceMemory } {
-    const size: vk.DeviceSize = @sizeOf(@TypeOf(QUAD_VERTS));
+    const size: vk.DeviceSize = @sizeOf(@TypeOf(quad_verts));
     const buf = try vkd.createBuffer(device, &.{
         .size = size,
         .usage = .{ .vertex_buffer_bit = true },
@@ -545,7 +545,7 @@ fn createVertexBuffer(
     const raw_ptr = (try vkd.mapMemory(device, mem, 0, size, .{})) orelse
         return error.MapMemoryReturnedNull;
     const typed_ptr: [*]f32 = @ptrCast(@alignCast(raw_ptr));
-    @memcpy(typed_ptr[0..QUAD_VERTS.len], &QUAD_VERTS);
+    @memcpy(typed_ptr[0..quad_verts.len], &quad_verts);
     vkd.unmapMemory(device, mem);
 
     return .{ .buffer = buf, .memory = mem };
