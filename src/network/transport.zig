@@ -18,7 +18,7 @@ const std = @import("std");
 
 /// Maximum payload size for a single framed message.
 /// Prevents malicious or buggy peers from requesting oversized reads.
-pub const MAX_FRAME_BYTES: u32 = 64 * 1024; // 64 KiB
+pub const max_frame_bytes: u32 = 64 * 1024; // 64 KiB
 
 // ============================================================================
 // Transport

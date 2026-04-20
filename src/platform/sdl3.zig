@@ -41,7 +41,8 @@ pub const Window = struct {
         self.handle = undefined;
     }
 
-    /// Get the current window dimensions in pixels.
+    /// Get the current window dimensions in logical (points/DP) units.
+    /// On Retina displays, this is half the framebuffer resolution.
     pub fn getSize(self: *const Window) struct { width: u32, height: u32 } {
         var w: c_int = 0;
         var h: c_int = 0;

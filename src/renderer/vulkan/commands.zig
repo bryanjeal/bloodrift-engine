@@ -13,7 +13,7 @@ const swapchain_mod = @import("swapchain.zig");
 // ============================================================================
 
 /// Number of frames that can be in-flight simultaneously.
-pub const MAX_FRAMES_IN_FLIGHT: u32 = 2;
+pub const max_frames_in_flight: u32 = 2;
 
 // ============================================================================
 // Types
@@ -27,9 +27,9 @@ pub const FrameSync = struct {
 
 pub const CommandState = struct {
     pool: vk.CommandPool,
-    buffers: [MAX_FRAMES_IN_FLIGHT]vk.CommandBuffer,
+    buffers: [max_frames_in_flight]vk.CommandBuffer,
     framebuffers: []vk.Framebuffer,
-    sync: [MAX_FRAMES_IN_FLIGHT]FrameSync,
+    sync: [max_frames_in_flight]FrameSync,
     allocator: std.mem.Allocator,
 };
 
@@ -51,11 +51,11 @@ pub fn init(
     }, null);
     errdefer vkd.destroyCommandPool(device, pool, null);
 
-    var buffers: [MAX_FRAMES_IN_FLIGHT]vk.CommandBuffer = undefined;
+    var buffers: [max_frames_in_flight]vk.CommandBuffer = undefined;
     try vkd.allocateCommandBuffers(device, &.{
         .command_pool = pool,
         .level = .primary,
-        .command_buffer_count = MAX_FRAMES_IN_FLIGHT,
+        .command_buffer_count = max_frames_in_flight,
     }, &buffers);
 
     const framebuffers = try createFramebuffers(vkd, device, sc, pip, allocator);
@@ -119,8 +119,8 @@ pub fn createFramebuffers(
 // Synchronization primitives
 // ============================================================================
 
-fn createSyncObjects(vkd: vk.DeviceWrapper, device: vk.Device) ![MAX_FRAMES_IN_FLIGHT]FrameSync {
-    var sync: [MAX_FRAMES_IN_FLIGHT]FrameSync = undefined;
+fn createSyncObjects(vkd: vk.DeviceWrapper, device: vk.Device) ![max_frames_in_flight]FrameSync {
+    var sync: [max_frames_in_flight]FrameSync = undefined;
     var created: u32 = 0;
     errdefer for (sync[0..created]) |*s| {
         vkd.destroySemaphore(device, s.image_available, null);

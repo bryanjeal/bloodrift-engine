@@ -3,7 +3,7 @@
 // Wire format:  [ u32 big-endian length ] [ payload bytes ]
 //
 // The 4-byte header encodes the payload length. The receiver reads the header
-// first, validates the length against MAX_FRAME_BYTES, then reads exactly that
+// first, validates the length against max_frame_bytes, then reads exactly that
 // many bytes into the caller-supplied buffer.
 //
 // Design decisions referenced:
@@ -12,13 +12,13 @@
 const std = @import("std");
 const transport = @import("transport.zig");
 
-pub const MAX_FRAME_BYTES = transport.MAX_FRAME_BYTES;
+pub const max_frame_bytes = transport.max_frame_bytes;
 
 /// Header size in bytes (u32 big-endian).
-pub const HEADER_BYTES: usize = 4;
+pub const header_bytes: usize = 4;
 
 pub const FrameError = error{
-    /// Payload exceeds MAX_FRAME_BYTES — peer is broken or malicious.
+    /// Payload exceeds max_frame_bytes — peer is broken or malicious.
     FrameTooLarge,
     /// Caller-supplied buffer is smaller than the incoming payload.
     BufferTooSmall,
@@ -31,10 +31,10 @@ pub const FrameError = error{
 // ============================================================================
 
 /// Send a length-prefixed frame over the transport.
-/// payload must not exceed MAX_FRAME_BYTES.
+/// payload must not exceed max_frame_bytes.
 pub fn sendFrame(t: transport.Transport, payload: []const u8) !void {
-    std.debug.assert(payload.len <= MAX_FRAME_BYTES);
-    var header: [HEADER_BYTES]u8 = undefined;
+    std.debug.assert(payload.len <= max_frame_bytes);
+    var header: [header_bytes]u8 = undefined;
     std.mem.writeInt(u32, &header, @intCast(payload.len), .big);
     try t.send(&header);
     if (payload.len > 0) try t.send(payload);
@@ -46,15 +46,15 @@ pub fn sendFrame(t: transport.Transport, payload: []const u8) !void {
 
 /// Receive one length-prefixed frame into buf.
 /// Returns the payload slice (sub-slice of buf).
-/// Returns FrameError.FrameTooLarge if the peer sends a length > MAX_FRAME_BYTES.
+/// Returns FrameError.FrameTooLarge if the peer sends a length > max_frame_bytes.
 /// Returns FrameError.BufferTooSmall if the frame fits in the protocol but not in buf.
 /// Returns FrameError.ConnectionClosed if the peer closes cleanly.
 pub fn recvFrame(t: transport.Transport, buf: []u8) ![]u8 {
-    var header: [HEADER_BYTES]u8 = undefined;
+    var header: [header_bytes]u8 = undefined;
     try recvExact(t, &header);
 
     const len = std.mem.readInt(u32, &header, .big);
-    if (len > MAX_FRAME_BYTES) return FrameError.FrameTooLarge;
+    if (len > max_frame_bytes) return FrameError.FrameTooLarge;
     if (len > buf.len) return FrameError.BufferTooSmall;
 
     const payload = buf[0..len];
@@ -138,9 +138,9 @@ test "framing: rejects oversized frame" {
     defer sender.deinit();
     defer receiver.deinit();
 
-    // Write a header claiming a payload larger than MAX_FRAME_BYTES.
-    var bad_header: [HEADER_BYTES]u8 = undefined;
-    std.mem.writeInt(u32, &bad_header, MAX_FRAME_BYTES + 1, .big);
+    // Write a header claiming a payload larger than max_frame_bytes.
+    var bad_header: [header_bytes]u8 = undefined;
+    std.mem.writeInt(u32, &bad_header, max_frame_bytes + 1, .big);
     try sender.stream.writeAll(&bad_header);
 
     var buf: [256]u8 = undefined;

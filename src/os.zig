@@ -71,11 +71,11 @@ pub fn setSockRecvTimeout(handle: std.net.Stream.Handle, timeout_ms: u32) !void 
     if (comptime builtin.os.tag == .windows) {
         const ws2 = std.os.windows.ws2_32;
         const ms: std.os.windows.DWORD = timeout_ms;
-        const SOL_SOCKET: i32 = 0xFFFF;
-        const SO_RCVTIMEO: i32 = 0x1006;
+        const sol_socket: i32 = 0xFFFF;
+        const so_rcv_time_out: i32 = 0x1006;
         const optval: ?[*]const u8 = @ptrCast(&ms);
         const optlen: i32 = @sizeOf(@TypeOf(ms));
-        const rc = ws2.setsockopt(handle, SOL_SOCKET, SO_RCVTIMEO, optval, optlen);
+        const rc = ws2.setsockopt(handle, sol_socket, so_rcv_time_out, optval, optlen);
         if (rc != 0) return error.SetSockOptFailed;
     } else {
         const usec: i32 = @intCast((timeout_ms % 1000) * 1000);

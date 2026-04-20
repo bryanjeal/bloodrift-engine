@@ -79,6 +79,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    test_module.addOptions("build_options", options);
     test_module.addImport("zflecs", zflecs.module("root"));
     test_module.addImport("zsdl3", zsdl.module("zsdl3"));
     test_module.addImport("vulkan", vulkan_module);

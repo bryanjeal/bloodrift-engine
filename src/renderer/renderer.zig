@@ -35,8 +35,14 @@ pub const InstanceData = extern struct {
     color: [4]f32, // RGBA linear color
     material_id: u16, // pipeline/shader selector (game-assigned)
     custom_data: u16, // game-defined per-instance payload
-    _pad: [2]u32 = .{ 0, 0 }, // alignment to 96 bytes / 16-byte boundary
+    _pad: [3]u32 = .{ 0, 0, 0 }, // pad to 96 bytes matching std430 InstanceData layout
 };
+
+comptime {
+    if (@sizeOf(InstanceData) != 96) {
+        @compileError("InstanceData must be 96 bytes, got " ++ @sizeOf(InstanceData));
+    }
+}
 
 /// A contiguous range of instances sharing the same material_id.
 /// Produced by sorting InstanceData[] by material_id.

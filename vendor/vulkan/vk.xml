@@ -3277,8 +3277,8 @@ typedef void* <name>MTLSharedEvent_id</name>;
             <member optional="true">const <type>void</type>*    <name>pNext</name></member>
             <member><type>VkBool32</type>       <name>localDimmingEnable</name></member>
         </type>
-        <type category="struct" name="VkRefreshCycleDurationGOOGLE" returnedonly="true">
-            <member><type>uint64_t</type>                         <name>refreshDuration</name><comment>Number of nanoseconds from the start of one refresh cycle to the next</comment></member>
+        <type category="struct" name="VkRefreshCycleover_timeGOOGLE" returnedonly="true">
+            <member><type>uint64_t</type>                         <name>refreshover_time</name><comment>Number of nanoseconds from the start of one refresh cycle to the next</comment></member>
         </type>
         <type category="struct" name="VkPastPresentationTimingGOOGLE" returnedonly="true">
             <member><type>uint32_t</type>                         <name>presentID</name><comment>Application-provided identifier, previously given to vkQueuePresentKHR</comment></member>
@@ -13555,10 +13555,10 @@ typedef void* <name>MTLSharedEvent_id</name>;
             <param externsync="true"><type>VkSwapchainKHR</type> <name>swapchain</name></param>
         </command>
         <command successcodes="VK_SUCCESS" errorcodes="VK_ERROR_OUT_OF_HOST_MEMORY,VK_ERROR_DEVICE_LOST,VK_ERROR_SURFACE_LOST_KHR">
-            <proto><type>VkResult</type> <name>vkGetRefreshCycleDurationGOOGLE</name></proto>
+            <proto><type>VkResult</type> <name>vkGetRefreshCycleover_timeGOOGLE</name></proto>
             <param><type>VkDevice</type> <name>device</name></param>
             <param externsync="true"><type>VkSwapchainKHR</type> <name>swapchain</name></param>
-            <param><type>VkRefreshCycleDurationGOOGLE</type>* <name>pDisplayTimingProperties</name></param>
+            <param><type>VkRefreshCycleover_timeGOOGLE</type>* <name>pDisplayTimingProperties</name></param>
         </command>
         <command successcodes="VK_SUCCESS,VK_INCOMPLETE" errorcodes="VK_ERROR_OUT_OF_HOST_MEMORY,VK_ERROR_DEVICE_LOST,VK_ERROR_OUT_OF_DATE_KHR,VK_ERROR_SURFACE_LOST_KHR">
             <proto><type>VkResult</type> <name>vkGetPastPresentationTimingGOOGLE</name></proto>
@@ -18719,11 +18719,11 @@ typedef void* <name>MTLSharedEvent_id</name>;
                 <enum value="1"                                             name="VK_GOOGLE_DISPLAY_TIMING_SPEC_VERSION"/>
                 <enum value="&quot;VK_GOOGLE_display_timing&quot;"          name="VK_GOOGLE_DISPLAY_TIMING_EXTENSION_NAME"/>
                 <enum offset="0" extends="VkStructureType"                  name="VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE"/>
-                <type name="VkRefreshCycleDurationGOOGLE"/>
+                <type name="VkRefreshCycleover_timeGOOGLE"/>
                 <type name="VkPastPresentationTimingGOOGLE"/>
                 <type name="VkPresentTimesInfoGOOGLE"/>
                 <type name="VkPresentTimeGOOGLE"/>
-                <command name="vkGetRefreshCycleDurationGOOGLE"/>
+                <command name="vkGetRefreshCycleover_timeGOOGLE"/>
                 <command name="vkGetPastPresentationTimingGOOGLE"/>
             </require>
         </extension>
