@@ -23,6 +23,10 @@ const EntityId = types.EntityId;
 ///   - Single-threaded: do not call from multiple threads.
 pub const World = struct {
     raw: *zflecs.world_t,
+    /// True while an each/eachChunk/eachN iteration is active.
+    /// Used to assert that callbacks do not mutate the world (nested iteration
+    /// or structural changes invalidate the Flecs iterator).
+    is_iterating: bool = false,
 
     /// Re-export raw zflecs bindings for advanced use (observers, queries,
     /// custom iterators). Prefer World methods for common operations.
@@ -52,7 +56,7 @@ pub const World = struct {
     }
 
     /// Register a component type with the world. Must be called before
-    /// any set/get/add operations using this type. Idempotent — safe
+    /// any set/get/add operations using this type. Idempotent - safe
     /// to call multiple times for the same type.
     pub fn registerComponent(self: *World, comptime T: type) void {
         zflecs.COMPONENT(self.raw, T);
@@ -173,6 +177,9 @@ pub const World = struct {
         ctx: *anyopaque,
         cb: *const fn (ctx: *anyopaque, entities: []const EntityId, comps: []const T) void,
     ) void {
+        std.debug.assert(!self.is_iterating);
+        self.is_iterating = true;
+        defer self.is_iterating = false;
         var desc: zflecs.query_desc_t = .{};
         desc.terms[0] = .{ .id = zflecs.id(T) };
         desc.terms[1] = .{ .id = zflecs.Prefab, .oper = .Not };
@@ -189,7 +196,7 @@ pub const World = struct {
 
     /// Iterate all entities that have component T, calling cb for each entity.
     ///
-    /// ctx is passed through to cb unchanged — use a pointer to local state
+    /// ctx is passed through to cb unchanged - use a pointer to local state
     /// to capture variables without heap allocation. Prefab entities are
     /// excluded at query level and will not be visited.
     ///
@@ -215,7 +222,81 @@ pub const World = struct {
             }
         }.run);
     }
+
+    /// Iterate all entities that have ALL listed components, calling cb once per chunk.
+    ///
+    /// ChunkTuple(Components) is a tuple of []const T slices, one per component type.
+    /// Access them as chunks[0], chunks[1], etc. Prefab entities and entities missing
+    /// any component are excluded at query level.
+    ///
+    /// Precondition: all types in Components are registered via registerComponent.
+    /// Precondition: cb must not mutate the world (no setComponent/newEntity/deleteEntity).
+    pub fn eachN(
+        self: *World,
+        comptime Components: []const type,
+        ctx: *anyopaque,
+        cb: *const fn (ctx: *anyopaque, entities: []const EntityId, chunks: ChunkTuple(Components)) void,
+    ) void {
+        std.debug.assert(!self.is_iterating);
+        self.is_iterating = true;
+        defer self.is_iterating = false;
+        var desc: zflecs.query_desc_t = .{};
+        inline for (Components, 0..) |T, i| {
+            desc.terms[i] = .{ .id = zflecs.id(T) };
+        }
+        desc.terms[Components.len] = .{ .id = zflecs.Prefab, .oper = .Not };
+        const query = zflecs.query_init(self.raw, &desc) catch @panic("eachN: query_init failed");
+        defer zflecs.query_fini(query);
+        var it = zflecs.query_iter(self.raw, query);
+        while (zflecs.query_next(&it)) {
+            const ents = it.entities();
+            var chunks: ChunkTuple(Components) = undefined;
+            var valid = true;
+            inline for (Components, 0..) |T, i| {
+                const fname = comptime std.fmt.comptimePrint("{d}", .{i});
+                if (zflecs.field(&it, T, i)) |slice| {
+                    @field(chunks, fname) = slice;
+                } else {
+                    valid = false;
+                }
+            }
+            if (!valid) continue;
+            std.debug.assert(ents.len == @field(chunks, "0").len);
+            cb(ctx, ents, chunks);
+        }
+    }
 };
+
+// ============================================================================
+// ChunkTuple
+// ============================================================================
+
+/// Comptime-generated tuple of component slices for eachN callbacks.
+/// ChunkTuple(&[_]type{A, B}) produces a tuple with fields "0": []const A, "1": []const B.
+/// Access via chunks[0], chunks[1], or @field(chunks, "0") etc.
+pub fn ChunkTuple(comptime Components: []const type) type {
+    comptime var fields: [Components.len]std.builtin.Type.StructField = undefined;
+    comptime {
+        for (Components, 0..) |T, i| {
+            fields[i] = .{
+                .name = std.fmt.comptimePrint("{d}", .{i}),
+                .type = []const T,
+                .default_value_ptr = null,
+                .is_comptime = false,
+                .alignment = @alignOf([]const T),
+            };
+        }
+    }
+    return @Type(.{
+        .@"struct" = .{
+            .layout = .auto,
+            .backing_integer = null,
+            .fields = &fields,
+            .decls = &.{},
+            .is_tuple = true,
+        },
+    });
+}
 
 // ============================================================================
 // Tests
@@ -395,7 +476,7 @@ fn eachTestCallback(ctx: *anyopaque, entity: EntityId, comp: *const TestPosition
     c.last_x = comp.x;
 }
 
-test "World.each: empty world — cb never called" {
+test "World.each: empty world - cb never called" {
     var world = World.init();
     defer world.deinit();
 
@@ -406,7 +487,7 @@ test "World.each: empty world — cb never called" {
     try std.testing.expectEqual(@as(u32, 0), ctx.visited);
 }
 
-test "World.each: one entity — cb called once with correct data" {
+test "World.each: one entity - cb called once with correct data" {
     var world = World.init();
     defer world.deinit();
 
@@ -422,7 +503,7 @@ test "World.each: one entity — cb called once with correct data" {
     try std.testing.expectEqual(@as(i64, 42), ctx.last_x);
 }
 
-test "World.each: N entities — cb called N times" {
+test "World.each: N entities - cb called N times" {
     var world = World.init();
     defer world.deinit();
 
@@ -446,7 +527,7 @@ test "World.each: entity without T is not visited" {
     world.registerComponent(TestPosition);
     world.registerComponent(TestVelocity);
 
-    // Only add TestVelocity — no TestPosition.
+    // Only add TestVelocity - no TestPosition.
     const e = world.newEntity();
     world.setComponent(e, TestVelocity, .{ .vx = 1, .vy = 2 });
 
@@ -510,7 +591,7 @@ fn eachChunkCallback(ctx: *anyopaque, entities: []const EntityId, comps: []const
     if (comps.len > 0) c.last_x = comps[comps.len - 1].x;
 }
 
-test "World.eachChunk: empty world — cb never called" {
+test "World.eachChunk: empty world - cb never called" {
     var world = World.init();
     defer world.deinit();
 
@@ -521,7 +602,7 @@ test "World.eachChunk: empty world — cb never called" {
     try std.testing.expectEqual(@as(u32, 0), ctx.total_visited);
 }
 
-test "World.eachChunk: one entity — cb called with slice of length 1" {
+test "World.eachChunk: one entity - cb called with slice of length 1" {
     var world = World.init();
     defer world.deinit();
 
@@ -536,7 +617,7 @@ test "World.eachChunk: one entity — cb called with slice of length 1" {
     try std.testing.expectEqual(@as(i64, 77), ctx.last_x);
 }
 
-test "World.eachChunk: N entities — all visited" {
+test "World.eachChunk: N entities - all visited" {
     var world = World.init();
     defer world.deinit();
 
@@ -560,7 +641,7 @@ test "World.eachChunk: prefab entity excluded" {
 
     world.registerComponent(TestPosition);
 
-    // Spawn two live entities and one prefab — only live entities should be visited.
+    // Spawn two live entities and one prefab - only live entities should be visited.
     const e1 = world.newEntity();
     world.setComponent(e1, TestPosition, .{ .x = 1, .y = 0 });
     const e2 = world.newEntity();
@@ -616,4 +697,125 @@ test "World.eachChunk: equivalence with each for single archetype" {
 
     try std.testing.expectEqual(each_count, chunk_count);
     try std.testing.expectEqual(each_sum, chunk_sum);
+}
+
+// ============================================================================
+// World.eachN() tests
+// ============================================================================
+
+test "World.eachN: empty world - cb never called" {
+    var world = World.init();
+    defer world.deinit();
+
+    world.registerComponent(TestPosition);
+    world.registerComponent(TestVelocity);
+
+    var visited: u32 = 0;
+    world.eachN(&[_]type{ TestPosition, TestVelocity }, @ptrCast(&visited), struct {
+        fn cb(raw: *anyopaque, entities: []const EntityId, _: ChunkTuple(&[_]type{ TestPosition, TestVelocity })) void {
+            (@as(*u32, @ptrCast(@alignCast(raw)))).* += @intCast(entities.len);
+        }
+    }.cb);
+    try std.testing.expectEqual(@as(u32, 0), visited);
+}
+
+test "World.eachN: entities with all components are visited" {
+    var world = World.init();
+    defer world.deinit();
+
+    world.registerComponent(TestPosition);
+    world.registerComponent(TestVelocity);
+
+    const e = world.newEntity();
+    world.setComponent(e, TestPosition, .{ .x = 1, .y = 0 });
+    world.setComponent(e, TestVelocity, .{ .vx = 2, .vy = 0 });
+
+    var visited: u32 = 0;
+    world.eachN(&[_]type{ TestPosition, TestVelocity }, @ptrCast(&visited), struct {
+        fn cb(raw: *anyopaque, entities: []const EntityId, _: ChunkTuple(&[_]type{ TestPosition, TestVelocity })) void {
+            (@as(*u32, @ptrCast(@alignCast(raw)))).* += @intCast(entities.len);
+        }
+    }.cb);
+    try std.testing.expectEqual(@as(u32, 1), visited);
+}
+
+test "World.eachN: entity missing one component is not visited" {
+    var world = World.init();
+    defer world.deinit();
+
+    world.registerComponent(TestPosition);
+    world.registerComponent(TestVelocity);
+
+    // e1 has both - should be visited. e2 has only Position - should not.
+    const e1 = world.newEntity();
+    world.setComponent(e1, TestPosition, .{ .x = 1, .y = 0 });
+    world.setComponent(e1, TestVelocity, .{ .vx = 1, .vy = 0 });
+    const e2 = world.newEntity();
+    world.setComponent(e2, TestPosition, .{ .x = 2, .y = 0 });
+
+    var visited: u32 = 0;
+    world.eachN(&[_]type{ TestPosition, TestVelocity }, @ptrCast(&visited), struct {
+        fn cb(raw: *anyopaque, entities: []const EntityId, _: ChunkTuple(&[_]type{ TestPosition, TestVelocity })) void {
+            (@as(*u32, @ptrCast(@alignCast(raw)))).* += @intCast(entities.len);
+        }
+    }.cb);
+    try std.testing.expectEqual(@as(u32, 1), visited);
+}
+
+test "World.eachN: prefab entity excluded" {
+    var world = World.init();
+    defer world.deinit();
+
+    world.registerComponent(TestPosition);
+    world.registerComponent(TestVelocity);
+
+    const e = world.newEntity();
+    world.setComponent(e, TestPosition, .{ .x = 1, .y = 0 });
+    world.setComponent(e, TestVelocity, .{ .vx = 1, .vy = 0 });
+    const prefab = world.newPrefab("EachNPrefab");
+    world.setComponent(prefab, TestPosition, .{ .x = 99, .y = 0 });
+    world.setComponent(prefab, TestVelocity, .{ .vx = 99, .vy = 0 });
+
+    var visited: u32 = 0;
+    world.eachN(&[_]type{ TestPosition, TestVelocity }, @ptrCast(&visited), struct {
+        fn cb(raw: *anyopaque, entities: []const EntityId, _: ChunkTuple(&[_]type{ TestPosition, TestVelocity })) void {
+            (@as(*u32, @ptrCast(@alignCast(raw)))).* += @intCast(entities.len);
+        }
+    }.cb);
+    try std.testing.expectEqual(@as(u32, 1), visited);
+}
+
+test "World.eachN: component slices are correct length and accessible" {
+    var world = World.init();
+    defer world.deinit();
+
+    world.registerComponent(TestPosition);
+    world.registerComponent(TestVelocity);
+
+    const n: u32 = 4;
+    for (0..n) |i| {
+        const e = world.newEntity();
+        world.setComponent(e, TestPosition, .{ .x = @intCast(i), .y = 0 });
+        world.setComponent(e, TestVelocity, .{ .vx = @intCast(i * 10), .vy = 0 });
+    }
+
+    var pos_sum: i64 = 0;
+    var vel_sum: i64 = 0;
+    var total: u32 = 0;
+    const SumCtx = struct { pos: *i64, vel: *i64, count: *u32 };
+    var sum_ctx = SumCtx{ .pos = &pos_sum, .vel = &vel_sum, .count = &total };
+    world.eachN(&[_]type{ TestPosition, TestVelocity }, @ptrCast(&sum_ctx), struct {
+        fn cb(raw: *anyopaque, entities: []const EntityId, chunks: ChunkTuple(&[_]type{ TestPosition, TestVelocity })) void {
+            const c: *SumCtx = @ptrCast(@alignCast(raw));
+            c.count.* += @intCast(entities.len);
+            for (chunks[0], chunks[1]) |pos, vel| {
+                c.pos.* += pos.x;
+                c.vel.* += vel.vx;
+            }
+        }
+    }.cb);
+
+    try std.testing.expectEqual(n, total);
+    try std.testing.expectEqual(@as(i64, 0 + 1 + 2 + 3), pos_sum);
+    try std.testing.expectEqual(@as(i64, 0 + 10 + 20 + 30), vel_sum);
 }
