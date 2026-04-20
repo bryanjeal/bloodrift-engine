@@ -195,12 +195,14 @@ pub fn SidecarStore(comptime Entry: type, comptime capacity: u32, comptime max_e
 
         /// Returns a tightly packed, contiguous slice of all active data entries.
         /// This is the primary iteration path for the 30Hz simulation tick.
+        /// Do NOT re-slice with `[0..len()]` - the returned slice is already bounded to the population count.
         pub inline fn items(self: *Self) []Entry {
             return self.private.dense.items(.data);
         }
 
         /// Returns a tightly packed, contiguous slice of the EntityIds that own the active data entries.
         /// Indices align perfectly with the slice returned by `items()`.
+        /// Do NOT re-slice with `[0..len()]` - the returned slice is already bounded to the population count.
         pub inline fn entityIds(self: *Self) []EntityId {
             return self.private.dense.items(.id);
         }
