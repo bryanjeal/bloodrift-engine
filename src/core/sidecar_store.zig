@@ -206,8 +206,8 @@ pub fn SidecarStore(comptime Entry: type, comptime capacity: u32, comptime max_e
         }
 
         /// Returns the number of active entries.
-        pub inline fn len(self: *Self) @TypeOf(capacity) {
-            return @as(@TypeOf(capacity), @intCast(self.private.dense.len));
+        pub inline fn len(self: *Self) usize {
+            return self.private.dense.len;
         }
 
         /// Saves the current dense state into the ring buffer mapped to the given simulation tick.
@@ -268,7 +268,7 @@ const TestEntry = struct {
     value: u32,
 };
 
-const TestStore = SidecarStore(TestEntry, 16, 32, 4);
+const TestStore = SidecarStore(TestEntry, 16, 1024, 4);
 
 test "SidecarStore: add and get" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -279,7 +279,7 @@ test "SidecarStore: add and get" {
     try store.add(100, .{ .entity = 100, .value = 42 });
     const entry = store.get(100).?;
     try std.testing.expectEqual(@as(u32, 42), entry.value);
-    try std.testing.expectEqual(@as(u32, 1), store.len);
+    try std.testing.expectEqual(@as(u32, 1), store.len());
 }
 
 test "SidecarStore: remove with swap-and-pop" {
@@ -298,7 +298,7 @@ test "SidecarStore: remove with swap-and-pop" {
     try std.testing.expect(!store.contains(1));
     try std.testing.expect(store.contains(2));
     try std.testing.expect(store.contains(3));
-    try std.testing.expectEqual(@as(u32, 2), store.len);
+    try std.testing.expectEqual(@as(u32, 2), store.len());
 
     // Values preserved after swap.
     try std.testing.expectEqual(@as(u32, 20), store.get(2).?.value);
@@ -316,7 +316,7 @@ test "SidecarStore: capacity exhaustion" {
         const eid: EntityId = @intCast(i + 1);
         try store.add(eid, .{ .entity = eid, .value = @intCast(i) });
     }
-    try std.testing.expectEqual(@as(u32, 16), store.len);
+    try std.testing.expectEqual(@as(u32, 16), store.len());
 
     // One more should fail.
     const result = store.add(999, .{ .entity = 999, .value = 0 });
@@ -342,11 +342,11 @@ test "SidecarStore: remove and re-add reuses slots" {
 
     try store.add(1, .{ .entity = 1, .value = 10 });
     store.remove(1);
-    try std.testing.expectEqual(@as(u32, 0), store.len);
+    try std.testing.expectEqual(@as(u32, 0), store.len());
 
     // Re-add same entity.
     try store.add(1, .{ .entity = 1, .value = 99 });
-    try std.testing.expectEqual(@as(u32, 1), store.len);
+    try std.testing.expectEqual(@as(u32, 1), store.len());
     try std.testing.expectEqual(@as(u32, 99), store.get(1).?.value);
 }
 
@@ -367,7 +367,7 @@ test "SidecarStore: snapshot and restore roundtrip" {
     try store.add(3, .{ .entity = 3, .value = 300 });
 
     // Verify modified state.
-    try std.testing.expectEqual(@as(u32, 2), store.len);
+    try std.testing.expectEqual(@as(u32, 2), store.len());
     try std.testing.expect(!store.contains(1));
     try std.testing.expectEqual(@as(u32, 999), store.get(2).?.value);
 
@@ -375,7 +375,7 @@ test "SidecarStore: snapshot and restore roundtrip" {
     try std.testing.expect(store.restore(10));
 
     // Original state restored.
-    try std.testing.expectEqual(@as(u32, 2), store.len);
+    try std.testing.expectEqual(@as(u32, 2), store.len());
     try std.testing.expect(store.contains(1));
     try std.testing.expect(store.contains(2));
     try std.testing.expect(!store.contains(3));
