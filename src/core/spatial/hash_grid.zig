@@ -2,8 +2,9 @@
 //
 // Rebuilt every tick from settled post-physics positions. Zero allocations
 // per tick - all four backing arrays are heap-allocated once at init.
-// Designed for ~16k entities; four arrays at max_entities=16384 total ~496 KB,
-// fitting in L2 cache.
+// Designed for ~16k entities; four arrays at max_entities=16384 total ~768 KB
+// (entries 256KB + scratch 256KB + cell_count 128KB + cell_start 128KB), which
+// fits in a typical L3 and is rebuilt sequentially on one thread.
 //
 // Two-prime Teschner hash: stable, cache-friendly, O(N + C) rebuild.
 // Callers do distance-squared filtering after visitInRadius - the grid
@@ -14,8 +15,9 @@ const types = @import("../types/root.zig");
 
 pub const EntityId = types.EntityId;
 
-/// Game-agnostic position in raw Fp16 units (i64).
-/// At the Phase B2 boundary, game code casts components.Position* to *Position.
+/// Game-agnostic position in raw fixed-point units (i64 per axis).
+/// Callers cast their own position struct to this type; the layout must match
+/// (i64 x, i64 y, i64 z in that order).
 pub const Position = struct { x: i64, y: i64, z: i64 };
 
 /// One slot in the sorted entry table.
@@ -139,7 +141,9 @@ pub const HashGrid = struct {
     /// [center - radius, center + radius]. Callers must do distance-sq filtering.
     ///
     /// PRE-27.3: radius_raw > 0
-    /// PRE-27.4a: grid has been rebuilt at least once (rebuild_count > 0)
+    /// PRE-27.4a: grid has been rebuilt at least once (rebuild_count > 0); a
+    ///            zero-entity rebuild satisfies this - entry_count may be 0.
+    /// PRE-27.5: radius_raw < maxInt(i64)/2 to prevent AABB corner arithmetic wrap
     /// POST-27.2: every entity within the AABB is visited (superset of true circle)
     pub fn visitInRadius(
         self: *const HashGrid,
@@ -150,6 +154,9 @@ pub const HashGrid = struct {
     ) void {
         std.debug.assert(self.rebuild_count > 0);
         std.debug.assert(radius_raw > 0);
+        // center.x +/- radius_raw must not overflow i64; half max is a safe ceiling
+        // for any game world size reachable via Fp16 coordinates.
+        std.debug.assert(radius_raw < std.math.maxInt(i64) / 2);
 
         // i64 throughout to avoid i32 overflow on large Fp16 coordinates.
         const cx_min: i64 = @divFloor(center.x - radius_raw, self.cell_size_raw);
