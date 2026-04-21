@@ -58,6 +58,9 @@ pub const HashGrid = struct {
     hash_mask: u32,
     /// Tick at which the last rebuild completed. 0 = never rebuilt.
     last_rebuild_tick: u64,
+    /// Number of times rebuild has been called. Used to distinguish "never rebuilt"
+    /// from "first rebuild happened on tick 0".
+    rebuild_count: u64,
 
     /// Allocates four backing arrays on the heap. Zero further allocations after this.
     ///
@@ -93,6 +96,7 @@ pub const HashGrid = struct {
             .cell_size_raw = cfg.cell_size_raw,
             .hash_mask = cfg.cell_count - 1,
             .last_rebuild_tick = 0,
+            .rebuild_count = 0,
         };
     }
 
@@ -128,13 +132,14 @@ pub const HashGrid = struct {
 
         self.entry_count = positions.len;
         self.last_rebuild_tick = tick;
+        self.rebuild_count += 1;
     }
 
     /// Calls cb(ctx, id, faction) for every entry in the AABB of cells covering
     /// [center - radius, center + radius]. Callers must do distance-sq filtering.
     ///
     /// PRE-27.3: radius_raw > 0
-    /// PRE-27.4: grid has been rebuilt (last_rebuild_tick > 0)
+    /// PRE-27.4a: grid has been rebuilt at least once (rebuild_count > 0)
     /// POST-27.2: every entity within the AABB is visited (superset of true circle)
     pub fn visitInRadius(
         self: *const HashGrid,
@@ -143,7 +148,7 @@ pub const HashGrid = struct {
         ctx: *anyopaque,
         cb: *const fn (*anyopaque, EntityId, u8) void,
     ) void {
-        std.debug.assert(self.last_rebuild_tick > 0);
+        std.debug.assert(self.rebuild_count > 0);
         std.debug.assert(radius_raw > 0);
 
         // i64 throughout to avoid i32 overflow on large Fp16 coordinates.

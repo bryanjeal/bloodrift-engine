@@ -64,9 +64,9 @@ test "visit_radius_basic" {
 // ---- 15. visit_radius_no_rebuild_asserts ------------------------------------
 
 test "visit_radius_no_rebuild_asserts" {
-    // PRE-27.4: calling visitInRadius before any rebuild must assert.
+    // PRE-27.4a: calling visitInRadius before any rebuild must assert.
     // std.testing.expectPanic does not exist in Zig 0.15 - skip.
-    // The guard is: assert(last_rebuild_tick > 0) in visitInRadius().
+    // The guard is: assert(rebuild_count > 0) in visitInRadius().
     return error.SkipZigTest;
 }
 

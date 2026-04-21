@@ -44,6 +44,7 @@ test "init_zeroed" {
 
     try std.testing.expectEqual(@as(usize, 0), grid.entry_count);
     try std.testing.expectEqual(@as(u64, 0), grid.last_rebuild_tick);
+    try std.testing.expectEqual(@as(u64, 0), grid.rebuild_count);
     try std.testing.expectEqual(@as(u32, 7), grid.hash_mask);
 }
 
@@ -75,6 +76,7 @@ test "rebuild_empty" {
 
     try std.testing.expectEqual(@as(usize, 0), grid.entry_count);
     try std.testing.expectEqual(@as(u64, 42), grid.last_rebuild_tick);
+    try std.testing.expectEqual(@as(u64, 1), grid.rebuild_count);
     for (grid.cell_count) |c| try std.testing.expectEqual(@as(u32, 0), c);
     for (grid.cell_start) |s| try std.testing.expectEqual(@as(u32, 0), s);
 }
@@ -256,6 +258,7 @@ test "rebuild_double_rebuild_identical" {
 
     grid.rebuild(&positions, &entities, &factions, 2);
 
+    try std.testing.expectEqual(@as(u64, 2), grid.rebuild_count);
     try std.testing.expect(std.mem.eql(hg.Entry, entries_a[0..n], grid.entries[0..n]));
     try std.testing.expect(std.mem.eql(u32, &cell_start_a, grid.cell_start));
     try std.testing.expect(std.mem.eql(u32, &cell_count_a, grid.cell_count));
