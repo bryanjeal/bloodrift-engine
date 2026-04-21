@@ -259,7 +259,8 @@ test "rebuild_double_rebuild_identical" {
     grid.rebuild(&positions, &entities, &factions, 2);
 
     try std.testing.expectEqual(@as(u64, 2), grid.rebuild_count);
-    try std.testing.expect(std.mem.eql(hg.Entry, entries_a[0..n], grid.entries[0..n]));
+    // Entry is extern struct; compare as bytes since extern layout is deterministic.
+    try std.testing.expect(std.mem.eql(u8, std.mem.sliceAsBytes(entries_a[0..n]), std.mem.sliceAsBytes(grid.entries[0..n])));
     try std.testing.expect(std.mem.eql(u32, &cell_start_a, grid.cell_start));
     try std.testing.expect(std.mem.eql(u32, &cell_count_a, grid.cell_count));
 }
