@@ -15,6 +15,7 @@ pub const math = @import("math.zig");
 pub const random = @import("random.zig");
 pub const ecs = @import("ecs.zig");
 pub const sidecar_store = @import("sidecar_store.zig");
+pub const spatial = @import("spatial/hash_grid.zig");
 
 // Pull all sub-module tests into the engine test binary.
 test {
@@ -26,4 +27,7 @@ test {
     _ = ecs;
     _ = sidecar_store;
     _ = @import("sidecar_store_test.zig");
+    _ = spatial;
+    _ = @import("spatial/hash_grid_rebuild_test.zig");
+    _ = @import("spatial/hash_grid_visit_test.zig");
 }
