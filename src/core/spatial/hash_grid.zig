@@ -2,9 +2,10 @@
 //
 // Rebuilt every tick from settled post-physics positions. Zero allocations
 // per tick - all four backing arrays are heap-allocated once at init.
-// Designed for ~16k entities; four arrays at max_entities=16384 total ~768 KB
-// (entries 256KB + scratch 256KB + cell_count 128KB + cell_start 128KB), which
-// fits in a typical L3 and is rebuilt sequentially on one thread.
+// Designed for ~16k entities. At cell_count=8192 the two cell tables are 32 KB each
+// so together they fit in L1D on common CPUs, and the sweep passes (memset,
+// prefix-sum, memcpy-cursor, restore) are L1-resident. entries + scratch at
+// max_entities=16384 add 256 KB each and stream sequentially in scatter.
 //
 // Two-prime Teschner hash: stable, cache-friendly, O(N + C) rebuild.
 // Callers do distance-squared filtering after visitInRadius - the grid
@@ -163,6 +164,19 @@ pub const HashGrid = struct {
         const cx_max: i64 = @divFloor(center.x + radius_raw, self.cell_size_raw);
         const cy_min: i64 = @divFloor(center.y - radius_raw, self.cell_size_raw);
         const cy_max: i64 = @divFloor(center.y + radius_raw, self.cell_size_raw);
+
+        // When the AABB covers more cells than we have entries, the cell-walk
+        // pays one hash + cell_start read for each empty cell (4M+ for arena-scale
+        // radii). Iterating entries directly is cheaper. Callers filter by
+        // distance-squared in their callback so visiting extras is safe - the
+        // POST-27.2 superset guarantee still holds.
+        const aabb_cells: i64 = (cx_max - cx_min + 1) * (cy_max - cy_min + 1);
+        if (aabb_cells > @as(i64, @intCast(self.entry_count))) {
+            for (self.entries[0..self.entry_count]) |e| {
+                cb(ctx, e.id, e.faction);
+            }
+            return;
+        }
 
         var cy: i64 = cy_min;
         while (cy <= cy_max) : (cy += 1) {
