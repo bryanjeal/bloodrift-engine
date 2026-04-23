@@ -351,6 +351,21 @@ pub const VulkanBackend = struct {
             .clear_value_count = 1,
             .p_clear_values = @ptrCast(&clear),
         }, .@"inline");
+        // Viewport + scissor are DYNAMIC pipeline state (see pipeline.zig). Set
+        // them from the current swapchain extent each frame so resize takes
+        // effect immediately without pipeline recreation. If these were static
+        // state, rendering would continue at the original window size forever.
+        const vp = vk.Viewport{
+            .x = 0,
+            .y = 0,
+            .width = @floatFromInt(self.swapchain.extent.width),
+            .height = @floatFromInt(self.swapchain.extent.height),
+            .min_depth = 0,
+            .max_depth = 1,
+        };
+        const scissor = vk.Rect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = self.swapchain.extent };
+        vkd.cmdSetViewport(self.commands.buffers[frame], 0, 1, @ptrCast(&vp));
+        vkd.cmdSetScissor(self.commands.buffers[frame], 0, 1, @ptrCast(&scissor));
         // Bind the shared vertex buffer (unit quad) once for the entire frame.
         const offset: vk.DeviceSize = 0;
         vkd.cmdBindVertexBuffers(self.commands.buffers[frame], 0, 1, @ptrCast(&self.vertex_buffer), @ptrCast(&offset));

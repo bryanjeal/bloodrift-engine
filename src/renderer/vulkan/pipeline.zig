@@ -180,20 +180,22 @@ fn createGraphicsPipelineFromModules(
         .topology = .triangle_list,
         .primitive_restart_enable = vk.FALSE,
     };
-    const viewport = vk.Viewport{
-        .x = 0,
-        .y = 0,
-        .width = @floatFromInt(extent.width),
-        .height = @floatFromInt(extent.height),
-        .min_depth = 0,
-        .max_depth = 1,
-    };
-    const scissor = vk.Rect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = extent };
+    // Viewport + scissor are dynamic state - pipeline does not bake a size.
+    // The backend calls vkCmdSetViewport / vkCmdSetScissor each frame after
+    // vkCmdBeginRenderPass, using the current swapchain extent. This makes
+    // the pipeline survive window resizes without recreation.
+    // The `extent` parameter is kept for signature stability but unused here.
+    _ = extent;
     const viewport_state = vk.PipelineViewportStateCreateInfo{
         .viewport_count = 1,
-        .p_viewports = @ptrCast(&viewport),
+        .p_viewports = null,
         .scissor_count = 1,
-        .p_scissors = @ptrCast(&scissor),
+        .p_scissors = null,
+    };
+    const dynamic_states = [_]vk.DynamicState{ .viewport, .scissor };
+    const dynamic_state = vk.PipelineDynamicStateCreateInfo{
+        .dynamic_state_count = dynamic_states.len,
+        .p_dynamic_states = &dynamic_states,
     };
     const rasterizer = vk.PipelineRasterizationStateCreateInfo{
         .depth_clamp_enable = vk.FALSE,
@@ -243,6 +245,7 @@ fn createGraphicsPipelineFromModules(
         .p_rasterization_state = &rasterizer,
         .p_multisample_state = &multisampling,
         .p_color_blend_state = &color_blending,
+        .p_dynamic_state = &dynamic_state,
         .layout = layout,
         .render_pass = render_pass,
         .subpass = 0,
