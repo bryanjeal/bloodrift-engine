@@ -289,10 +289,13 @@ pub const VulkanBackend = struct {
     // =========================================================================
 
     pub fn beginFrame(self: *VulkanBackend, camera: renderer_mod.CameraData) !void {
-        if (self.is_stale) return;
         self.current_vp = camera.vp;
-        // Start a new ImGui frame before any draw commands.
+        // Always start ImGui frame FIRST so client ui_draw has a valid
+        // WithinFrameScope even when the swapchain is stale (resize mid-frame).
+        // endFrame closes ImGui's frame cleanly via zgui.endFrame() if stale,
+        // instead of trying to record ImGui draws into a non-recording cmd buffer.
         zgui.backend.newFrame(self.swapchain.extent.width, self.swapchain.extent.height);
+        if (self.is_stale) return;
         const frame = self.current_frame;
         const sync = &self.commands.sync[frame];
         const dev = self.device.handle;
@@ -391,7 +394,14 @@ pub const VulkanBackend = struct {
     }
 
     pub fn endFrame(self: *VulkanBackend) !void {
-        if (self.is_stale) return;
+        if (self.is_stale) {
+            // Swapchain stale - close ImGui frame without recording draws into
+            // a (non-recording) Vulkan command buffer. Keeps ImGui's internal
+            // NewFrame/EndFrame pairing balanced so the next non-stale tick
+            // starts from a clean slate.
+            zgui.endFrame();
+            return;
+        }
         const frame = self.current_frame;
         const vkd = self.device.vkd;
         const cmd = self.commands.buffers[frame];
