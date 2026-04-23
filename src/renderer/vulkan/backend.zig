@@ -78,6 +78,10 @@ pub const VulkanBackend = struct {
     current_frame: u32,
     current_image: u32,
     current_vp: [16]f32,
+    /// Swapchain is invalid (window resized, display changed, etc.). Frame
+    /// methods no-op while set; cleared by resize() after successful recreation.
+    /// Prevents the OutOfDateKHR / SuboptimalKHR crash path from propagating.
+    is_stale: bool,
 
     /// Open a Vulkan context attached to an SDL3 window.
     ///
@@ -248,6 +252,7 @@ pub const VulkanBackend = struct {
             .material_layouts = mat_layouts,
             .material_count = mat_count,
             .current_frame = 0,
+            .is_stale = false,
             .current_image = 0,
             .current_vp = [_]f32{0} ** 16,
         };
@@ -284,6 +289,7 @@ pub const VulkanBackend = struct {
     // =========================================================================
 
     pub fn beginFrame(self: *VulkanBackend, camera: renderer_mod.CameraData) !void {
+        if (self.is_stale) return;
         self.current_vp = camera.vp;
         // Start a new ImGui frame before any draw commands.
         zgui.backend.newFrame(self.swapchain.extent.width, self.swapchain.extent.height);
@@ -292,8 +298,20 @@ pub const VulkanBackend = struct {
         const dev = self.device.handle;
         const vkd = self.device.vkd;
         _ = try vkd.waitForFences(dev, 1, @ptrCast(&sync.in_flight), vk.TRUE, std.math.maxInt(u64));
-        const acquire = try vkd.acquireNextImageKHR(dev, self.swapchain.handle, std.math.maxInt(u64), sync.image_available, .null_handle);
+        // OutOfDateKHR / SuboptimalKHR signal the swapchain is stale (resize,
+        // display change). Mark stale + no-op this frame; resize() clears.
+        const acquire = vkd.acquireNextImageKHR(dev, self.swapchain.handle, std.math.maxInt(u64), sync.image_available, .null_handle) catch |err| switch (err) {
+            error.OutOfDateKHR => {
+                self.is_stale = true;
+                return;
+            },
+            else => return err,
+        };
         self.current_image = acquire.image_index;
+        if (acquire.result == .suboptimal_khr) {
+            self.is_stale = true;
+            return;
+        }
         try vkd.resetFences(dev, 1, @ptrCast(&sync.in_flight));
         try vkd.resetCommandBuffer(self.commands.buffers[frame], .{});
         try vkd.beginCommandBuffer(self.commands.buffers[frame], &.{ .flags = .{ .one_time_submit_bit = true } });
@@ -325,6 +343,7 @@ pub const VulkanBackend = struct {
     /// Submit a sorted render queue. Uploads instances to SSBO, pushes VP
     /// matrix once, then issues one instanced draw per material range.
     pub fn submitQueue(self: *VulkanBackend, queue: renderer_mod.RenderQueue) !void {
+        if (self.is_stale) return;
         if (queue.count == 0) return;
         const cmd = self.commands.buffers[self.current_frame];
         const vkd = self.device.vkd;
@@ -372,6 +391,7 @@ pub const VulkanBackend = struct {
     }
 
     pub fn endFrame(self: *VulkanBackend) !void {
+        if (self.is_stale) return;
         const frame = self.current_frame;
         const vkd = self.device.vkd;
         const cmd = self.commands.buffers[frame];
@@ -393,14 +413,28 @@ pub const VulkanBackend = struct {
     }
 
     pub fn present(self: *VulkanBackend) !void {
+        if (self.is_stale) return;
         const sync = &self.commands.sync[self.current_frame];
-        _ = try self.device.vkd.queuePresentKHR(self.device.present_queue, &.{
+        // queuePresentKHR returns OutOfDateKHR / SuboptimalKHR when the
+        // swapchain is stale (resize, display change). Catch + mark stale
+        // + swallow; resize() clears the flag after recreating the swapchain.
+        const present_result = self.device.vkd.queuePresentKHR(self.device.present_queue, &.{
             .wait_semaphore_count = 1,
             .p_wait_semaphores = @ptrCast(&sync.render_finished),
             .swapchain_count = 1,
             .p_swapchains = @ptrCast(&self.swapchain.handle),
             .p_image_indices = @ptrCast(&self.current_image),
-        });
+        }) catch |err| switch (err) {
+            error.OutOfDateKHR => {
+                self.is_stale = true;
+                return;
+            },
+            else => return err,
+        };
+        if (present_result == .suboptimal_khr) {
+            self.is_stale = true;
+            return;
+        }
         self.current_frame = (self.current_frame + 1) % commands_mod.max_frames_in_flight;
     }
 
@@ -409,6 +443,8 @@ pub const VulkanBackend = struct {
     pub fn resize(self: *VulkanBackend, width: u32, height: u32) !void {
         std.debug.assert(width > 0 and height > 0);
         try self.device.vkd.deviceWaitIdle(self.device.handle);
+        // Stale flag cleared on successful recreation (end of this fn).
+        self.is_stale = false;
 
         // Destroy old framebuffers (they depend on swapchain image views).
         for (self.commands.framebuffers) |fb| {
