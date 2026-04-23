@@ -290,6 +290,31 @@ pub const VulkanBackend = struct {
 
     pub fn beginFrame(self: *VulkanBackend, camera: renderer_mod.CameraData) !void {
         self.current_vp = camera.vp;
+        // Self-heal if the swapchain was marked stale by a prior frame.
+        // Query the current surface extent (Vulkan's authoritative framebuffer
+        // size after resize / display-change) and rebuild. If the surface is
+        // minimised (0x0), we leave is_stale set and ImGui newFrame below
+        // will run with the last-known extent, keeping lifecycle valid.
+        if (self.is_stale) {
+            const caps = self.instance.vki.getPhysicalDeviceSurfaceCapabilitiesKHR(self.device.physical, self.surface) catch |err| {
+                std.log.warn("renderer: surface caps query failed during stale recovery: {s}", .{@errorName(err)});
+                // Fall through; we'll try again next frame.
+                zgui.backend.newFrame(self.swapchain.extent.width, self.swapchain.extent.height);
+                return;
+            };
+            if (caps.current_extent.width > 0 and caps.current_extent.height > 0) {
+                self.resize(caps.current_extent.width, caps.current_extent.height) catch |err| {
+                    std.log.warn("renderer: stale-recovery resize failed: {s}", .{@errorName(err)});
+                    zgui.backend.newFrame(self.swapchain.extent.width, self.swapchain.extent.height);
+                    return;
+                };
+                // resize() clears is_stale on success; fall through to normal path.
+            } else {
+                // Minimised or zero-size - keep frame lifecycle balanced and skip work.
+                zgui.backend.newFrame(self.swapchain.extent.width, self.swapchain.extent.height);
+                return;
+            }
+        }
         // Always start ImGui frame FIRST so client ui_draw has a valid
         // WithinFrameScope even when the swapchain is stale (resize mid-frame).
         // endFrame closes ImGui's frame cleanly via zgui.endFrame() if stale,
