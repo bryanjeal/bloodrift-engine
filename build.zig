@@ -44,6 +44,15 @@ pub fn build(b: *std.Build) void {
     });
     const zgui_module = zgui_dep.module("root");
     const imgui_lib = zgui_dep.artifact("imgui");
+
+    // Tracy profiling bindings. Enabled via -Denable_ztracy=true on the parent
+    // build; defaults to no-op stubs otherwise. backend.zig references tracy
+    // unconditionally; stubs compile out to zero runtime cost.
+    const ztracy_dep = b.dependency("ztracy", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const ztracy_module = ztracy_dep.module("root");
     // SDL3 C headers needed by imgui_impl_sdl3.cpp on macOS (Homebrew install).
     switch (target.result.os.tag) {
         .macos => imgui_lib.addSystemIncludePath(.{ .cwd_relative = "/usr/local/opt/sdl3/include" }),
@@ -71,6 +80,7 @@ pub fn build(b: *std.Build) void {
     engine_module.addImport("zsdl3", zsdl.module("zsdl3"));
     engine_module.addImport("vulkan", vulkan_module);
     engine_module.addImport("zgui", zgui_module);
+    engine_module.addImport("ztracy", ztracy_module);
     addSdl3IncludePaths(engine_module, target.result.os.tag, sdl3_path);
 
     // Engine tests.
@@ -84,6 +94,7 @@ pub fn build(b: *std.Build) void {
     test_module.addImport("zsdl3", zsdl.module("zsdl3"));
     test_module.addImport("vulkan", vulkan_module);
     test_module.addImport("zgui", zgui_module);
+    test_module.addImport("ztracy", ztracy_module);
     addSdl3IncludePaths(test_module, target.result.os.tag, sdl3_path);
 
     const engine_tests = b.addTest(.{

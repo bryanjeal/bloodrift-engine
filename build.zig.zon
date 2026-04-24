@@ -20,6 +20,10 @@
             .url = "https://github.com/zig-gamedev/zgui/archive/refs/heads/main.tar.gz",
             .hash = "zgui-0.6.0-dev--L6sZCJKbgBZGCzVMcwD0bNGmpK6yO-UoIESHX5JiRet",
         },
+        .ztracy = .{
+            .url = "git+https://github.com/zig-gamedev/ztracy#d95d2a193b9f97944a17026c9a42b5d0f9a88c94",
+            .hash = "ztracy-0.14.0-dev-zHJSqzUHGQAmhJybhlwtl1QKevUBw4M5YKZqPfWx2y99",
+        },
     },
     .paths = .{""},
 }
