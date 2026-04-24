@@ -16,6 +16,7 @@
 const std = @import("std");
 const vk = @import("vulkan");
 const zgui = @import("zgui");
+const tracy = @import("ztracy");
 const renderer_mod = @import("../renderer.zig");
 const instance_mod = @import("instance.zig");
 const device_mod = @import("device.zig");
@@ -82,6 +83,15 @@ pub const VulkanBackend = struct {
     /// methods no-op while set; cleared by resize() after successful recreation.
     /// Prevents the OutOfDateKHR / SuboptimalKHR crash path from propagating.
     is_stale: bool,
+    // GPU timestamp query pool: two slots per frame (begin + end of render pass).
+    // .null_handle when the physical device reports timestamp_period == 0 (no support).
+    timestamp_query_pool: vk.QueryPool = .null_handle,
+    // Nanoseconds per timestamp tick; from VkPhysicalDeviceLimits.timestampPeriod.
+    timestamp_period_ns: f64 = 0.0,
+    // Set to true after the first successful begin+end pair so we know
+    // the previous frame's slots contain valid data to read back.
+    have_timestamp_prev: [commands_mod.max_frames_in_flight]bool =
+        [_]bool{false} ** commands_mod.max_frames_in_flight,
 
     /// Open a Vulkan context attached to an SDL3 window.
     ///
@@ -231,6 +241,20 @@ pub const VulkanBackend = struct {
             .image_count = @intCast(sc.image_views.len),
         }, @ptrCast(window));
 
+        // GPU timestamp query pool for Tracy gpu_frame_us plot.
+        // Skip setup when timestamp_period == 0 (device does not support timestamps).
+        // All subsequent logic gates on timestamp_query_pool != .null_handle.
+        const ts_period: f64 = dev.properties.limits.timestamp_period;
+        var ts_pool: vk.QueryPool = .null_handle;
+        if (ts_period > 0.0) {
+            const pool_info = vk.QueryPoolCreateInfo{
+                .query_type = .timestamp,
+                .query_count = commands_mod.max_frames_in_flight * 2,
+            };
+            ts_pool = try dev.vkd.createQueryPool(dev.handle, &pool_info, null);
+            errdefer dev.vkd.destroyQueryPool(dev.handle, ts_pool, null);
+        }
+
         return .{
             .allocator = allocator,
             .surface = surface,
@@ -255,6 +279,8 @@ pub const VulkanBackend = struct {
             .is_stale = false,
             .current_image = 0,
             .current_vp = [_]f32{0} ** 16,
+            .timestamp_query_pool = ts_pool,
+            .timestamp_period_ns = ts_period,
         };
     }
 
@@ -273,6 +299,9 @@ pub const VulkanBackend = struct {
         self.device.vkd.unmapMemory(self.device.handle, self.instance_buffer_memory);
         self.device.vkd.freeMemory(self.device.handle, self.instance_buffer_memory, null);
         self.device.vkd.destroyDescriptorPool(self.device.handle, self.imgui_descriptor_pool, null);
+        if (self.timestamp_query_pool != .null_handle) {
+            self.device.vkd.destroyQueryPool(self.device.handle, self.timestamp_query_pool, null);
+        }
         commands_mod.deinit(&self.commands, self.device.vkd, self.device.handle);
         pipeline_mod.deinit(&self.pipeline, self.device.vkd, self.device.handle);
         self.device.vkd.destroyBuffer(self.device.handle, self.vertex_buffer, null);
@@ -300,18 +329,23 @@ pub const VulkanBackend = struct {
                 std.log.warn("renderer: surface caps query failed during stale recovery: {s}", .{@errorName(err)});
                 // Fall through; we'll try again next frame.
                 zgui.backend.newFrame(self.swapchain.extent.width, self.swapchain.extent.height);
+                // No GPU work was recorded this frame; mark the slot invalid so the
+                // next beginFrame does not try to read back stale timestamp data.
+                self.have_timestamp_prev[self.current_frame] = false;
                 return;
             };
             if (caps.current_extent.width > 0 and caps.current_extent.height > 0) {
                 self.resize(caps.current_extent.width, caps.current_extent.height) catch |err| {
                     std.log.warn("renderer: stale-recovery resize failed: {s}", .{@errorName(err)});
                     zgui.backend.newFrame(self.swapchain.extent.width, self.swapchain.extent.height);
+                    self.have_timestamp_prev[self.current_frame] = false;
                     return;
                 };
                 // resize() clears is_stale on success; fall through to normal path.
             } else {
                 // Minimised or zero-size - keep frame lifecycle balanced and skip work.
                 zgui.backend.newFrame(self.swapchain.extent.width, self.swapchain.extent.height);
+                self.have_timestamp_prev[self.current_frame] = false;
                 return;
             }
         }
@@ -331,6 +365,7 @@ pub const VulkanBackend = struct {
         const acquire = vkd.acquireNextImageKHR(dev, self.swapchain.handle, std.math.maxInt(u64), sync.image_available, .null_handle) catch |err| switch (err) {
             error.OutOfDateKHR => {
                 self.is_stale = true;
+                self.have_timestamp_prev[frame] = false;
                 return;
             },
             else => return err,
@@ -338,11 +373,50 @@ pub const VulkanBackend = struct {
         self.current_image = acquire.image_index;
         if (acquire.result == .suboptimal_khr) {
             self.is_stale = true;
+            self.have_timestamp_prev[frame] = false;
             return;
         }
         try vkd.resetFences(dev, 1, @ptrCast(&sync.in_flight));
         try vkd.resetCommandBuffer(self.commands.buffers[frame], .{});
         try vkd.beginCommandBuffer(self.commands.buffers[frame], &.{ .flags = .{ .one_time_submit_bit = true } });
+        if (self.timestamp_query_pool != .null_handle) {
+            // After waitForFences above, the GPU has finished the previous frame's
+            // work for this slot, so the previous frame's query results are ready.
+            if (self.have_timestamp_prev[frame]) {
+                var timestamps: [2]u64 = undefined;
+                const result = vkd.getQueryPoolResults(
+                    dev,
+                    self.timestamp_query_pool,
+                    @as(u32, @intCast(frame)) * 2,
+                    2,
+                    @sizeOf([2]u64),
+                    &timestamps,
+                    @sizeOf(u64),
+                    .{ .@"64_bit" = true },
+                ) catch |err| if (err == error.NotReady) null else return err;
+                if (result != null) {
+                    // Wrapping subtraction handles the rare rollover case cleanly.
+                    const delta_ticks: u64 = timestamps[1] -% timestamps[0];
+                    const delta_ns: f64 = @as(f64, @floatFromInt(delta_ticks)) * self.timestamp_period_ns;
+                    const delta_us: u64 = @as(u64, @intFromFloat(delta_ns / 1000.0));
+                    tracy.PlotU("gpu_frame_us", delta_us);
+                }
+            }
+            // Reset this frame's two slots before recording new timestamps.
+            vkd.cmdResetQueryPool(
+                self.commands.buffers[frame],
+                self.timestamp_query_pool,
+                @as(u32, @intCast(frame)) * 2,
+                2,
+            );
+            // Begin timestamp at the earliest measurable pipeline stage.
+            vkd.cmdWriteTimestamp(
+                self.commands.buffers[frame],
+                .{ .top_of_pipe_bit = true },
+                self.timestamp_query_pool,
+                @as(u32, @intCast(frame)) * 2,
+            );
+        }
         const clear = vk.ClearValue{ .color = .{ .float_32 = .{ 0.05, 0.05, 0.05, 1.0 } } };
         vkd.cmdBeginRenderPass(self.commands.buffers[frame], &.{
             .render_pass = self.pipeline.render_pass,
@@ -440,6 +514,9 @@ pub const VulkanBackend = struct {
             // NewFrame/EndFrame pairing balanced so the next non-stale tick
             // starts from a clean slate.
             zgui.endFrame();
+            // No end timestamp was written; ensure the next beginFrame skips
+            // readback for this slot to avoid reading stale query data.
+            self.have_timestamp_prev[self.current_frame] = false;
             return;
         }
         const frame = self.current_frame;
@@ -448,6 +525,17 @@ pub const VulkanBackend = struct {
         // Render ImGui draw data inside the render pass (after all game draws).
         zgui.backend.render(@ptrFromInt(@intFromEnum(cmd)));
         vkd.cmdEndRenderPass(cmd);
+        if (self.timestamp_query_pool != .null_handle) {
+            // Write the end timestamp at the last measurable stage inside the
+            // render pass lifetime. Must come after cmdEndRenderPass.
+            vkd.cmdWriteTimestamp(
+                cmd,
+                .{ .bottom_of_pipe_bit = true },
+                self.timestamp_query_pool,
+                @as(u32, @intCast(frame)) * 2 + 1,
+            );
+            self.have_timestamp_prev[frame] = true;
+        }
         try vkd.endCommandBuffer(cmd);
         const wait_stage = vk.PipelineStageFlags{ .color_attachment_output_bit = true };
         const sync = &self.commands.sync[frame];
