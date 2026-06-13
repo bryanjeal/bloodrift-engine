@@ -13,7 +13,9 @@ const swapchain_mod = @import("swapchain.zig");
 // ============================================================================
 
 /// Number of frames that can be in-flight simultaneously.
-pub const max_frames_in_flight: u32 = 2;
+/// Must be >= swapchain image count to avoid semaphore reuse validation
+/// errors. macOS/MoltenVK typically provides 3 swapchain images.
+pub const max_frames_in_flight: u32 = 3;
 
 // ============================================================================
 // Types
