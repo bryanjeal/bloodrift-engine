@@ -9,16 +9,16 @@
             .hash = "zflecs-0.2.0-dev-1PN3ysolPAABJMgsIgYPrs0G278g-f7mCt9kNG9IMq8V",
         },
         .zsdl = .{
-            .url = "https://github.com/zig-gamedev/zsdl/archive/refs/heads/main.tar.gz",
-            .hash = "zsdl-0.4.0-dev-rFpjEzgIXwBdDmlda0YnQPRVApMc1YEgbyzLWuT9GupM",
+            .url = "https://github.com/zig-gamedev/zsdl/archive/139434f5833ee323a34affae1c3f2edae96276b3.tar.gz",
+            .hash = "zsdl-0.4.0-dev-rFpjEznjXwB_GXp7IQWKT8MggbxL5Vjz1udhfp0MEcnz",
         },
         .vulkan = .{
             .url = "git+https://github.com/Snektron/vulkan-zig#bed9e2d2241ade679b78892c829f41cecc2ef5ef",
             .hash = "vulkan-0.0.0-r7YtxwA_AwAU4rmOITZD_KJs11Kie1sv0t-pcMDQGIqw",
         },
         .zgui = .{
-            .url = "https://github.com/zig-gamedev/zgui/archive/refs/heads/main.tar.gz",
-            .hash = "zgui-0.6.0-dev--L6sZCJKbgBZGCzVMcwD0bNGmpK6yO-UoIESHX5JiRet",
+            .url = "https://github.com/zig-gamedev/zgui/archive/ce016156a8520c438e886cd6c0b605e10ee7af3d.tar.gz",
+            .hash = "zgui-0.6.0-dev--L6sZKkSbgCUBXLVfwJDPpMkETz7ll-mmQYQae-nMxjt",
         },
         .ztracy = .{
             .url = "git+https://github.com/zig-gamedev/ztracy#d95d2a193b9f97944a17026c9a42b5d0f9a88c94",

@@ -55,7 +55,15 @@ pub fn build(b: *std.Build) void {
     const ztracy_module = ztracy_dep.module("root");
     // SDL3 C headers needed by imgui_impl_sdl3.cpp on macOS (Homebrew install).
     switch (target.result.os.tag) {
-        .macos => imgui_lib.addSystemIncludePath(.{ .cwd_relative = "/usr/local/opt/sdl3/include" }),
+        .macos => {
+            const sdl3_inc = blk: {
+                if (std.fs.cwd().statFile("/opt/homebrew/opt/sdl3/include/SDL3/SDL.h")) |_|
+                    break :blk "/opt/homebrew/opt/sdl3/include"
+                else |_|
+                    break :blk "/usr/local/opt/sdl3/include";
+            };
+            imgui_lib.addSystemIncludePath(.{ .cwd_relative = sdl3_inc });
+        },
         else => {},
     }
 
@@ -115,7 +123,15 @@ pub fn build(b: *std.Build) void {
 /// Add SDL3 C include paths to a module (needed for @cImport in backend.zig).
 fn addSdl3IncludePaths(module: *std.Build.Module, os: std.Target.Os.Tag, sdl3_opt: ?[]const u8) void {
     switch (os) {
-        .macos => module.addIncludePath(.{ .cwd_relative = "/usr/local/opt/sdl3/include" }),
+        .macos => {
+            const sdl3_inc = blk: {
+                if (std.fs.cwd().statFile("/opt/homebrew/opt/sdl3/include/SDL3/SDL.h")) |_|
+                    break :blk "/opt/homebrew/opt/sdl3/include"
+                else |_|
+                    break :blk "/usr/local/opt/sdl3/include";
+            };
+            module.addIncludePath(.{ .cwd_relative = sdl3_inc });
+        },
         .windows => {
             if (sdl3_opt) |sdl3| {
                 const b = module.owner;
@@ -134,7 +150,13 @@ pub fn linkSdl3(step: *std.Build.Step.Compile, sdl3_opt: ?[]const u8) void {
     const b = step.step.owner;
     switch (step.rootModuleTarget().os.tag) {
         .macos => {
-            step.addLibraryPath(.{ .cwd_relative = "/usr/local/opt/sdl3/lib" });
+            const sdl3_lib = blk: {
+                if (std.fs.cwd().statFile("/opt/homebrew/opt/sdl3/lib/libSDL3.dylib")) |_|
+                    break :blk "/opt/homebrew/opt/sdl3/lib"
+                else |_|
+                    break :blk "/usr/local/opt/sdl3/lib";
+            };
+            step.addLibraryPath(.{ .cwd_relative = sdl3_lib });
             step.linkSystemLibrary("SDL3");
             step.root_module.addRPathSpecial("@executable_path");
         },
@@ -165,7 +187,13 @@ pub fn linkVulkan(step: *std.Build.Step.Compile, vulkan_sdk: []const u8) void {
             step.addLibraryPath(.{ .cwd_relative = lib_path });
             step.linkSystemLibrary("vulkan");
             step.addRPath(.{ .cwd_relative = lib_path });
-            step.root_module.addIncludePath(.{ .cwd_relative = "/usr/local/opt/sdl3/include" });
+            const sdl3_inc = blk: {
+                if (std.fs.cwd().statFile("/opt/homebrew/opt/sdl3/include/SDL3/SDL.h")) |_|
+                    break :blk "/opt/homebrew/opt/sdl3/include"
+                else |_|
+                    break :blk "/usr/local/opt/sdl3/include";
+            };
+            step.root_module.addIncludePath(.{ .cwd_relative = sdl3_inc });
         },
         .linux => {
             step.linkSystemLibrary("vulkan");
@@ -187,7 +215,13 @@ pub fn linkVulkan(step: *std.Build.Step.Compile, vulkan_sdk: []const u8) void {
 pub fn linkZstd(step: *std.Build.Step.Compile) void {
     switch (step.rootModuleTarget().os.tag) {
         .macos => {
-            step.addLibraryPath(.{ .cwd_relative = "/usr/local/opt/zstd/lib" });
+            const zstd_lib = blk: {
+                if (std.fs.cwd().statFile("/opt/homebrew/opt/zstd/lib/libzstd.dylib")) |_|
+                    break :blk "/opt/homebrew/opt/zstd/lib"
+                else |_|
+                    break :blk "/usr/local/opt/zstd/lib";
+            };
+            step.addLibraryPath(.{ .cwd_relative = zstd_lib });
             step.linkSystemLibrary("zstd");
         },
         .linux => {
