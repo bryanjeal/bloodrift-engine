@@ -131,3 +131,46 @@ Run from the project root: `zig build test` also runs engine tests (engine is a 
 - `std.ArrayList(T)` is unmanaged in 0.15.2: pass allocator to `.append`, `.deinit`, etc.
 - `std.BoundedArray` does not exist — use plain local arrays
 - `vk.makeApiVersion` returns `vk.Version` (packed struct) — `@bitCast` to assign to `u32` fields
+
+## Vulkan Synchronization (Spec-Compliant)
+
+### Authoritative References
+
+All synchronization decisions MUST cite at least one of:
+
+- **Vulkan 1.3 Specification** — §7 (Synchronization and Cache Control), §30.6 (Swapchain Creation), §30.10 (WSI Semaphore/Fence Contracts)
+- **Vulkan Programming Guide** (Graham Sellers, 2016) — Chapter 9 (Synchronization), Chapter 11 (The Swapchain)
+- **GPUOpen Vulkan Memory / Sync Primer** — <https://gpuopen.com/learn/vulkan-memory-sync-primer/>
+- **MoltenVK Best Practices** — <https://github.com/KhronosGroup/MoltenVK/blob/main/Docs/MoltenVK_Runtime_UserGuide.md>
+
+### Indexing Rule (BLOCKING)
+
+**Every synchronization primitive MUST have its indexing scheme explicitly justified against the resource's actual lifetime.** Add a comment at the declaration site for each array of fences, semaphores, or command buffers explaining:
+
+1. What does this array index by? (frame counter? image index? something else?)
+2. What is the resource's lifetime? (same-frame? cross-frame? per-image?)
+3. Why is this indexing scheme correct per the Vulkan spec?
+
+Counters over time:
+
+| Resource | Lifetime | Index by |
+|----------|----------|----------|
+| Acquire semaphore | Same-frame (acquire→submit) | Frame counter |
+| Render semaphore | Cross-frame (submit→present) | Swapchain image index |
+| In-flight fence | Same-frame (submit→CPU wait) | Frame counter |
+| Command buffer | Per-swapchain-image (records into specific framebuffer) | Swapchain image index |
+| Framebuffer | Per-swapchain-image (attached to specific image view) | Swapchain image index |
+| Uniform/staging buffer | Per-frame-in-flight (CPU writes between fence signals) | Frame counter |
+
+### Platform-Specific Gotchas
+
+- **MoltenVK image count:** On macOS, MoltenVK may create 3 swapchain images even when `min_image_count` is 2. Never assume `image_count == max_frames_in_flight`. Always queried `sc.image_views.len` at runtime and allocate per-image resources accordingly.
+- **MoltenVK present timing:** The Metal present engine may defer semaphore consumption differently from desktop Vulkan drivers. A fence covering the submit does NOT guarantee the present engine has consumed the render semaphore. Use per-image render semaphores to avoid this race.
+- **`min_image_count` is a request, not a guarantee:** The Vulkan spec states the implementation may create more images than requested. Per-image arrays must be sized by `getSwapchainImagesKHR` output, not by `min_image_count`.
+
+### Anti-Patterns (Never Do These)
+
+- **Never index synchronization primitives by frame counter when the resource lifetime is tied to a swapchain image.** This causes undefined behavior when `swapchain_image_count > max_frames_in_flight`.
+- **Never assume `swapchain_image_count == max_frames_in_flight`.** This works by coincidence on some desktop drivers but fails on MoltenVK and is not spec-guaranteed.
+- **Never bundle acquire semaphore, render semaphore, and fence into a single per-frame struct** when they have different lifetime domains. Keep per-frame and per-image resources in separate arrays with explicit comments.
+- **Never use the same semaphore array for acquire and present** when they operate on different indexing domains (same-frame vs. cross-frame).
