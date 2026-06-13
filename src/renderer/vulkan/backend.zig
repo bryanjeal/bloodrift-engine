@@ -257,7 +257,7 @@ pub const VulkanBackend = struct {
             .queue = @ptrFromInt(@intFromEnum(dev.graphics_queue)),
             .descriptor_pool = @ptrFromInt(@intFromEnum(imgui_pool)),
             .render_pass = @ptrFromInt(@intFromEnum(pip.render_pass)),
-            .min_image_count = commands_mod.max_frames_in_flight,
+            .min_image_count = @intCast(sc.image_views.len),
             .image_count = @intCast(sc.image_views.len),
         }, @ptrCast(window));
 
@@ -383,13 +383,24 @@ pub const VulkanBackend = struct {
         zgui.backend.newFrame(self.swapchain.extent.width, self.swapchain.extent.height);
         if (self.is_stale) return;
         const frame = self.current_frame;
-        const sync = &self.commands.sync[frame];
         const dev = self.device.handle;
         const vkd = self.device.vkd;
-        _ = try vkd.waitForFences(dev, 1, @ptrCast(&sync.in_flight), vk.TRUE, std.math.maxInt(u64));
+        // CPU throttling: wait for the GPU to finish the work submitted
+        // max_frames_in_flight frames ago. Fences are indexed by frame
+        // counter, not by swapchain image index.
+        _ = try vkd.waitForFences(dev, 1, @ptrCast(&self.commands.fences[frame]), vk.TRUE, std.math.maxInt(u64));
         // OutOfDateKHR / SuboptimalKHR signal the swapchain is stale (resize,
         // display change). Mark stale + no-op this frame; resize() clears.
-        const acquire = vkd.acquireNextImageKHR(dev, self.swapchain.handle, std.math.maxInt(u64), sync.image_available, .null_handle) catch |err| switch (err) {
+        // Acquire semaphore is per-frame-in-flight: the same-frame acquire→submit
+        // wait chain means the semaphore is always unsignaled before reuse (the
+        // fence for this frame slot was just waited above).
+        const acquire = vkd.acquireNextImageKHR(
+            dev,
+            self.swapchain.handle,
+            std.math.maxInt(u64),
+            self.commands.acquire_sem[frame],
+            .null_handle,
+        ) catch |err| switch (err) {
             error.OutOfDateKHR => {
                 self.is_stale = true;
                 self.have_timestamp_prev[frame] = false;
@@ -403,9 +414,12 @@ pub const VulkanBackend = struct {
             self.have_timestamp_prev[frame] = false;
             return;
         }
-        try vkd.resetFences(dev, 1, @ptrCast(&sync.in_flight));
-        try vkd.resetCommandBuffer(self.commands.buffers[frame], .{});
-        try vkd.beginCommandBuffer(self.commands.buffers[frame], &.{ .flags = .{ .one_time_submit_bit = true } });
+        try vkd.resetFences(dev, 1, @ptrCast(&self.commands.fences[frame]));
+        // Command buffers are per-swapchain-image: each image has dedicated
+        // recording state so we never re-record into a buffer that references
+        // a different image's framebuffer.
+        try vkd.resetCommandBuffer(self.commands.buffers[self.current_image], .{});
+        try vkd.beginCommandBuffer(self.commands.buffers[self.current_image], &.{ .flags = .{ .one_time_submit_bit = true } });
         if (self.timestamp_query_pool != .null_handle) {
             // After waitForFences above, the GPU has finished the previous frame's
             // work for this slot, so the previous frame's query results are ready.
@@ -431,14 +445,14 @@ pub const VulkanBackend = struct {
             }
             // Reset this frame's two slots before recording new timestamps.
             vkd.cmdResetQueryPool(
-                self.commands.buffers[frame],
+                self.commands.buffers[self.current_image],
                 self.timestamp_query_pool,
                 @as(u32, @intCast(frame)) * 2,
                 2,
             );
             // Begin timestamp at the earliest measurable pipeline stage.
             vkd.cmdWriteTimestamp(
-                self.commands.buffers[frame],
+                self.commands.buffers[self.current_image],
                 .{ .top_of_pipe_bit = true },
                 self.timestamp_query_pool,
                 @as(u32, @intCast(frame)) * 2,
@@ -454,7 +468,7 @@ pub const VulkanBackend = struct {
     ///   update_buffer: vkCmdUpdateBuffer (chunked) -> TRANSFER barrier
     pub fn submitQueue(self: *VulkanBackend, queue: renderer_mod.RenderQueue) !void {
         if (self.is_stale) return;
-        const cmd = self.commands.buffers[self.current_frame];
+        const cmd = self.commands.buffers[self.current_image];
         const vkd = self.device.vkd;
         const dev = self.device.handle;
 
@@ -601,14 +615,17 @@ pub const VulkanBackend = struct {
             return;
         }
         const frame = self.current_frame;
+        const image = self.current_image;
         const vkd = self.device.vkd;
-        const cmd = self.commands.buffers[frame];
+        // Command buffer is per-swapchain-image: index by image_index.
+        const cmd = self.commands.buffers[image];
         // Render ImGui draw data inside the render pass (after all game draws).
         zgui.backend.render(@ptrFromInt(@intFromEnum(cmd)));
         vkd.cmdEndRenderPass(cmd);
         if (self.timestamp_query_pool != .null_handle) {
             // Write the end timestamp at the last measurable stage inside the
             // render pass lifetime. Must come after cmdEndRenderPass.
+            // Query slots are per-frame-in-flight (reused with the fence).
             vkd.cmdWriteTimestamp(
                 cmd,
                 .{ .bottom_of_pipe_bit = true },
@@ -619,27 +636,31 @@ pub const VulkanBackend = struct {
         }
         try vkd.endCommandBuffer(cmd);
         const wait_stage = vk.PipelineStageFlags{ .color_attachment_output_bit = true };
-        const sync = &self.commands.sync[frame];
+        // Submit: wait on the per-frame acquire semaphore (signaled by
+        // vkAcquireNextImageKHR in beginFrame), signal the per-image render
+        // semaphore (waited on by vkQueuePresentKHR for this specific image),
+        // and signal the per-frame fence for CPU throttling.
         try vkd.queueSubmit(self.device.graphics_queue, 1, &[_]vk.SubmitInfo{.{
             .wait_semaphore_count = 1,
-            .p_wait_semaphores = @ptrCast(&sync.image_available),
+            .p_wait_semaphores = @ptrCast(&self.commands.acquire_sem[frame]),
             .p_wait_dst_stage_mask = @ptrCast(&wait_stage),
             .command_buffer_count = 1,
             .p_command_buffers = @ptrCast(&cmd),
             .signal_semaphore_count = 1,
-            .p_signal_semaphores = @ptrCast(&sync.render_finished),
-        }}, sync.in_flight);
+            .p_signal_semaphores = @ptrCast(&self.commands.render_sem[image]),
+        }}, self.commands.fences[frame]);
     }
 
     pub fn present(self: *VulkanBackend) !void {
         if (self.is_stale) return;
-        const sync = &self.commands.sync[self.current_frame];
+        // Render semaphore is per-swapchain-image: index by image_index.
+        const render_sem = self.commands.render_sem[self.current_image];
         // queuePresentKHR returns OutOfDateKHR / SuboptimalKHR when the
         // swapchain is stale (resize, display change). Catch + mark stale
         // + swallow; resize() clears the flag after recreating the swapchain.
         const present_result = self.device.vkd.queuePresentKHR(self.device.present_queue, &.{
             .wait_semaphore_count = 1,
-            .p_wait_semaphores = @ptrCast(&sync.render_finished),
+            .p_wait_semaphores = @ptrCast(&render_sem),
             .swapchain_count = 1,
             .p_swapchains = @ptrCast(&self.swapchain.handle),
             .p_image_indices = @ptrCast(&self.current_image),
@@ -657,19 +678,13 @@ pub const VulkanBackend = struct {
         self.current_frame = (self.current_frame + 1) % commands_mod.max_frames_in_flight;
     }
 
-    /// Recreate swapchain and framebuffers for a new window size.
+    /// Recreate swapchain and all per-image resources for a new window size.
     /// Called after the window is resized. Waits for GPU idle first.
     pub fn resize(self: *VulkanBackend, width: u32, height: u32) !void {
         std.debug.assert(width > 0 and height > 0);
         try self.device.vkd.deviceWaitIdle(self.device.handle);
         // Stale flag cleared on successful recreation (end of this fn).
         self.is_stale = false;
-
-        // Destroy old framebuffers (they depend on swapchain image views).
-        for (self.commands.framebuffers) |fb| {
-            self.device.vkd.destroyFramebuffer(self.device.handle, fb, null);
-        }
-        self.allocator.free(self.commands.framebuffers);
 
         // Destroy old swapchain (image views + VkSwapchainKHR).
         swapchain_mod.deinit(&self.swapchain, self.device.vkd, self.device.handle);
@@ -688,13 +703,15 @@ pub const VulkanBackend = struct {
             self.allocator,
         );
 
-        // Recreate framebuffers with the new swapchain image views.
-        self.commands.framebuffers = try commands_mod.createFramebuffers(
+        // Recreate all per-swapchain-image resources (command buffers,
+        // render semaphores, framebuffers) matching the new image count.
+        // Acquire semaphores and fences are per-frame-in-flight and survive.
+        try commands_mod.recreateForSwapchain(
+            &self.commands,
             self.device.vkd,
             self.device.handle,
             &self.swapchain,
             &self.pipeline,
-            self.allocator,
         );
     }
 
