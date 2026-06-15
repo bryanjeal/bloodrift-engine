@@ -111,6 +111,12 @@ pub const InputSnapshot = struct {
     quit: bool = false,
     window_resized: bool = false,
 
+    // UI panel toggle keys (standard ARPG keybinds).
+    // Held state — client does edge detection by comparing frames.
+    ui_passive_tree: bool = false, // P — passive skill tree
+    ui_inventory: bool = false, // I — inventory
+    ui_equipment: bool = false, // C — character/equipment sheet
+
     /// All fields false.
     pub const zero: InputSnapshot = .{};
 };
@@ -146,6 +152,7 @@ pub fn pollEvents(snap: *InputSnapshot, event_hook: ?*const fn (*const anyopaque
 
     // Scancodes confirmed against SDL3 headers (SDL_scancode.h):
     //   a=4, d=7, e=8, f=9, q=20, r=21, s=22, w=26, escape=41
+    //   c=6, i=12, p=19
     std.debug.assert(kb.len > 41);
 
     snap.move_up = kb[@intFromEnum(sdl.Scancode.w)];
@@ -157,6 +164,11 @@ pub fn pollEvents(snap: *InputSnapshot, event_hook: ?*const fn (*const anyopaque
     snap.skill_3 = kb[@intFromEnum(sdl.Scancode.r)];
     snap.skill_4 = kb[@intFromEnum(sdl.Scancode.space)];
     snap.skill_5 = kb[@intFromEnum(sdl.Scancode.f)];
+
+    // UI panel toggle keys — standard ARPG keybinds.
+    snap.ui_passive_tree = kb[@intFromEnum(sdl.Scancode.p)];
+    snap.ui_inventory = kb[@intFromEnum(sdl.Scancode.i)];
+    snap.ui_equipment = kb[@intFromEnum(sdl.Scancode.c)];
 
     if (kb[@intFromEnum(sdl.Scancode.escape)]) {
         snap.quit = true;
