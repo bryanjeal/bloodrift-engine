@@ -111,15 +111,25 @@ pub const InputSnapshot = struct {
     quit: bool = false,
     window_resized: bool = false,
 
-    // UI panel toggle keys (standard ARPG keybinds).
-    // Held state — client does edge detection by comparing frames.
-    ui_passive_tree: bool = false, // P — passive skill tree
-    ui_inventory: bool = false, // I — inventory
-    ui_equipment: bool = false, // C — character/equipment sheet
+    // Game-specific key mappings (UI toggles, additional hotkeys) should use
+    // isKeyHeld() directly rather than adding fields here. skill_1..skill_5
+    // fields above are legacy and will be migrated in a follow-up (TD-109).
 
     /// All fields false.
     pub const zero: InputSnapshot = .{};
 };
+
+// Re-export SDL scancodes so game code can query arbitrary keys without
+// adding game-specific fields to InputSnapshot.
+pub const Scancode = sdl.Scancode;
+
+/// Return true if the given scancode is currently held.
+/// Must be called after pollEvents (which pumps the event queue) to get
+/// the current frame's keyboard state.  Safe to call multiple times per frame.
+pub fn isKeyHeld(sc: Scancode) bool {
+    const kb = sdl.getKeyboardState();
+    return kb[@intFromEnum(sc)];
+}
 
 // ============================================================================
 // pollEvents
@@ -164,11 +174,6 @@ pub fn pollEvents(snap: *InputSnapshot, event_hook: ?*const fn (*const anyopaque
     snap.skill_3 = kb[@intFromEnum(sdl.Scancode.r)];
     snap.skill_4 = kb[@intFromEnum(sdl.Scancode.space)];
     snap.skill_5 = kb[@intFromEnum(sdl.Scancode.f)];
-
-    // UI panel toggle keys — standard ARPG keybinds.
-    snap.ui_passive_tree = kb[@intFromEnum(sdl.Scancode.p)];
-    snap.ui_inventory = kb[@intFromEnum(sdl.Scancode.i)];
-    snap.ui_equipment = kb[@intFromEnum(sdl.Scancode.c)];
 
     if (kb[@intFromEnum(sdl.Scancode.escape)]) {
         snap.quit = true;
