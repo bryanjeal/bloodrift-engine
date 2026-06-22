@@ -83,12 +83,16 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    // libxev — async event loop (cross-platform: kqueue/epoll/IOCP).
+    const xev_dep = b.dependency("libxev", .{ .target = target, .optimize = optimize });
+
     engine_module.addOptions("build_options", options);
     engine_module.addImport("zflecs", zflecs.module("root"));
     engine_module.addImport("zsdl3", zsdl.module("zsdl3"));
     engine_module.addImport("vulkan", vulkan_module);
     engine_module.addImport("zgui", zgui_module);
     engine_module.addImport("ztracy", ztracy_module);
+    engine_module.addImport("xev", xev_dep.module("xev"));
     addSdl3IncludePaths(engine_module, target.result.os.tag, sdl3_path);
 
     // Engine tests.
@@ -103,6 +107,7 @@ pub fn build(b: *std.Build) void {
     test_module.addImport("vulkan", vulkan_module);
     test_module.addImport("zgui", zgui_module);
     test_module.addImport("ztracy", ztracy_module);
+    test_module.addImport("xev", xev_dep.module("xev"));
     addSdl3IncludePaths(test_module, target.result.os.tag, sdl3_path);
 
     const engine_tests = b.addTest(.{
