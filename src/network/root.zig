@@ -7,9 +7,12 @@
 pub const transport = @import("transport.zig");
 pub const tcp = @import("tcp.zig");
 pub const framing = @import("framing.zig");
+pub const xev_tcp = @import("xev_tcp.zig");
 
 test {
     _ = transport;
     _ = tcp;
     _ = framing;
+    _ = @import("xev_echo_test.zig");
+    _ = xev_tcp;
 }
