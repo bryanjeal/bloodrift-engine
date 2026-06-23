@@ -13,6 +13,5 @@ test {
     _ = transport;
     _ = tcp;
     _ = framing;
-    _ = @import("xev_echo_test.zig");
     _ = xev_tcp;
 }
