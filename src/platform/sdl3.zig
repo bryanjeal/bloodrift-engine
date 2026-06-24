@@ -96,24 +96,34 @@ pub const Timer = struct {
 
 /// One frame of raw keyboard state.
 ///
-/// All fields are false by default. Movement maps to WASD; skills to QERF.
-/// The quit flag is set when the user closes the window or presses Escape.
+/// Movement maps to WASD; quit on Escape or window close.
+/// Game-specific key mappings (skills, UI toggles) use isKeyHeld().
 pub const InputSnapshot = struct {
     move_up: bool = false,
     move_down: bool = false,
     move_left: bool = false,
     move_right: bool = false,
-    skill_1: bool = false, // Q (Primary when auto off)
-    skill_2: bool = false, // E (Heavy)
-    skill_3: bool = false, // R (Special)
-    skill_4: bool = false, // Space (Movement)
-    skill_5: bool = false, // F (Heal)
     quit: bool = false,
     window_resized: bool = false,
+
+    // Game-specific key mappings (skills, UI toggles) should use isKeyHeld()
+    // rather than adding fields here.
 
     /// All fields false.
     pub const zero: InputSnapshot = .{};
 };
+
+// Re-export SDL scancodes so game code can query arbitrary keys without
+// adding game-specific fields to InputSnapshot.
+pub const Scancode = sdl.Scancode;
+
+/// Return true if the given scancode is currently held.
+/// Must be called after pollEvents (which pumps the event queue) to get
+/// the current frame's keyboard state.  Safe to call multiple times per frame.
+pub fn isKeyHeld(sc: Scancode) bool {
+    const kb = sdl.getKeyboardState();
+    return kb[@intFromEnum(sc)];
+}
 
 // ============================================================================
 // pollEvents
@@ -146,17 +156,13 @@ pub fn pollEvents(snap: *InputSnapshot, event_hook: ?*const fn (*const anyopaque
 
     // Scancodes confirmed against SDL3 headers (SDL_scancode.h):
     //   a=4, d=7, e=8, f=9, q=20, r=21, s=22, w=26, escape=41
+    //   c=6, i=12, p=19
     std.debug.assert(kb.len > 41);
 
     snap.move_up = kb[@intFromEnum(sdl.Scancode.w)];
     snap.move_down = kb[@intFromEnum(sdl.Scancode.s)];
     snap.move_left = kb[@intFromEnum(sdl.Scancode.a)];
     snap.move_right = kb[@intFromEnum(sdl.Scancode.d)];
-    snap.skill_1 = kb[@intFromEnum(sdl.Scancode.q)];
-    snap.skill_2 = kb[@intFromEnum(sdl.Scancode.e)];
-    snap.skill_3 = kb[@intFromEnum(sdl.Scancode.r)];
-    snap.skill_4 = kb[@intFromEnum(sdl.Scancode.space)];
-    snap.skill_5 = kb[@intFromEnum(sdl.Scancode.f)];
 
     if (kb[@intFromEnum(sdl.Scancode.escape)]) {
         snap.quit = true;
@@ -175,10 +181,6 @@ test "InputSnapshot: zero has all fields false" {
     try std.testing.expect(!snap.move_down);
     try std.testing.expect(!snap.move_left);
     try std.testing.expect(!snap.move_right);
-    try std.testing.expect(!snap.skill_1);
-    try std.testing.expect(!snap.skill_2);
-    try std.testing.expect(!snap.skill_3);
-    try std.testing.expect(!snap.skill_4);
     try std.testing.expect(!snap.quit);
 }
 

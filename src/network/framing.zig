@@ -10,6 +10,7 @@
 //   §5: Message framing — 4-byte length-prefix header + Protobuf payload
 
 const std = @import("std");
+const xev = @import("xev");
 const transport = @import("transport.zig");
 
 pub const max_frame_bytes = transport.max_frame_bytes;
