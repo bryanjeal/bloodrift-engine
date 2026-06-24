@@ -9,9 +9,6 @@
 const std = @import("std");
 const xev = @import("xev");
 
-/// Maximum bytes for accept callback userdata strings (hostname/IP).
-pub const max_accept_addr: usize = 64;
-
 pub const XevTcp = struct {
     tcp: xev.TCP,
     completion: xev.Completion = .{},
