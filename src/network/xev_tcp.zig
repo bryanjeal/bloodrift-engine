@@ -9,6 +9,9 @@
 const std = @import("std");
 const xev = @import("xev");
 
+/// Maximum bytes for accept callback userdata strings (hostname/IP).
+pub const max_accept_addr: usize = 64;
+
 pub const XevTcp = struct {
     tcp: xev.TCP,
     completion: xev.Completion = .{},
@@ -29,69 +32,61 @@ pub const XevTcp = struct {
         try self.tcp.listen(backlog);
     }
 
-    /// Accept a connection. Sets result to the accepted TCP on success.
+    /// Accept a connection. The callback receives the accepted TCP on success
+    /// via r: xev.AcceptError!xev.TCP. conn_ptr is set to the accepted TCP
+    /// and the callback disarms on success.
     pub fn accept(
         self: *XevTcp,
         loop: *xev.Loop,
-        result: *?xev.TCP,
+        conn_ptr: *?xev.TCP,
     ) void {
-        self.tcp.accept(loop, &self.completion, ?xev.TCP, result, acceptCallback);
-    }
-
-    /// Accept a connection with a custom callback. The callback receives
-    /// the server instance as userdata and the accepted connection.
-    pub fn acceptCb(
-        self: *XevTcp,
-        loop: *xev.Loop,
-        comptime Userdata: type,
-        userdata: Userdata,
-    ) void {
-        self.tcp.accept(loop, &self.completion, Userdata, userdata, acceptCbDispatch);
+        self.tcp.accept(loop, &self.completion, ?xev.TCP, conn_ptr, acceptCallback);
     }
 
     fn acceptCallback(
         ud: ?*?xev.TCP,
         _: *xev.Loop,
         _: *xev.Completion,
-        conn: xev.TCP,
-        _: xev.AcceptError!void,
+        r: xev.AcceptError!xev.TCP,
     ) xev.CallbackAction {
-        ud.?.* = conn;
+        if (r) |conn| {
+            ud.?.* = conn;
+        } else |_| {
+            ud.?.* = null;
+        }
         return .disarm;
     }
 
-    fn acceptCbDispatch(
-        ud: ?*xev.TCP,
-        _: *xev.Loop,
-        _: *xev.Completion,
-        conn: xev.TCP,
-        _: xev.AcceptError!void,
-    ) xev.CallbackAction {
-        ud.?.* = conn;
-        return .disarm;
-    }
-
-    /// Connect to a remote address (client-side).
+    /// Connect to a remote address (client-side). Blocks until the connection
+    /// completes or fails. Returns error on connection failure.
     pub fn connect(
         self: *XevTcp,
         loop: *xev.Loop,
         addr: std.net.Address,
     ) !void {
-        self.tcp.connect(loop, &self.completion, addr, void, null, connectCallback);
+        var connected: bool = false;
+        self.tcp.connect(loop, &self.completion, addr, bool, &connected, connectCallback);
+        try loop.run(.until_done);
+        if (!connected) return error.ConnectionFailed;
     }
 
     fn connectCallback(
-        _: ?*void,
+        ud: ?*bool,
         _: *xev.Loop,
         _: *xev.Completion,
         _: xev.TCP,
         r: xev.ConnectError!void,
     ) xev.CallbackAction {
-        _ = r catch return .disarm;
+        if (r) |_| {
+            ud.?.* = true;
+        } else |_| {
+            ud.?.* = false;
+        }
         return .disarm;
     }
 
-    /// Read data into buf. Callback receives the number of bytes read.
+    /// Read data into buf. The callback sets n_read to the number of bytes read
+    /// (or 0 on error). Pump the loop afterward to process the completion.
     pub fn read(
         self: *XevTcp,
         loop: *xev.Loop,
@@ -113,7 +108,8 @@ pub const XevTcp = struct {
         return .disarm;
     }
 
-    /// Write data. Callback receives the number of bytes written.
+    /// Write data. The callback sets n_written to the number of bytes written
+    /// (or 0 on error). Pump the loop afterward to process the completion.
     pub fn write(
         self: *XevTcp,
         loop: *xev.Loop,
@@ -135,7 +131,8 @@ pub const XevTcp = struct {
         return .disarm;
     }
 
-    /// Graceful shutdown then close.
+    /// Graceful close. The callback fires when the close completes.
+    /// Pump the loop afterward to process the completion.
     pub fn close(
         self: *XevTcp,
         loop: *xev.Loop,
