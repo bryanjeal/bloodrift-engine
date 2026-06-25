@@ -39,6 +39,9 @@ pub const XevTcp = struct {
     read_result: usize = 0,
     write_result: usize = 0,
 
+    // Set true when a read completes with 0 bytes (TCP FIN from peer).
+    eof: bool = false,
+
     // ---- all fields above, all declarations below ----
 
     /// Create a new TCP, not yet connected or bound.
@@ -146,6 +149,7 @@ pub const XevTcp = struct {
         const s = ud.?;
         s.read_result = r catch 0;
         s.read_pending = false;
+        if (s.read_result == 0) s.eof = true;
         return .disarm;
     }
 
@@ -200,6 +204,12 @@ pub const XevTcp = struct {
         _: xev.CloseError!void,
     ) xev.CallbackAction {
         return .disarm;
+    }
+
+    /// True when the peer has closed the connection (TCP FIN received).
+    /// Check after loop.run(...) when a read completed with 0 bytes.
+    pub fn isEof(self: *const XevTcp) bool {
+        return self.eof;
     }
 };
 
@@ -269,7 +279,7 @@ test "xev_tcp: read_pending prevents completion overwrite" {
         server.close(&loop);
         loop.run(.until_done) catch {};
     }
-    _ = sv[0]; // client fd, not needed for this test
+    std.posix.close(sv[0]); // unused client fd
 
     // Submit a read when there is no data. The read will be pending.
     var recv_buf: [64]u8 = undefined;
@@ -305,7 +315,7 @@ test "xev_tcp: write_pending prevents completion overwrite" {
         client.close(&loop);
         loop.run(.until_done) catch {};
     }
-    _ = sv[1]; // server fd, not needed for this test
+    std.posix.close(sv[1]); // unused server fd
 
     // Fill up the send buffer by writing a very large chunk with a small
     // SO_SNDBUF. After the first write, a second should no-op because the
@@ -324,9 +334,10 @@ test "xev_tcp: write_pending prevents completion overwrite" {
     // Submit a second write while the first might still be pending.
     // The pending guard prevents overwriting the armed completion.
     client.write(&loop, "should_noop");
-    // After the no-op, write_pending is still whatever the first write
-    // set it to. write_result is still the first write's result.
-    // The key property: the completion was NOT overwritten.
+    // If the first write completed, write_result > 0 and write_pending is false.
+    // If it is still pending, write_result == 0 and write_pending is true.
+    // Either way, the second write did not corrupt the completion state.
+    try std.testing.expectEqual(client.write_result > 0, !client.write_pending);
 }
 
 test "xev_tcp: bidirectionhal read and write do not interfere" {
