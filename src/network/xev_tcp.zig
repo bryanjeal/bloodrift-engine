@@ -48,7 +48,7 @@ pub const XevTcp = struct {
 
     /// Wrap an existing file descriptor (for testing via socketpair).
     /// Caller owns the fd lifecycle.
-    pub fn initFd(fd: xev.TCP.FdType) XevTcp {
+    pub fn initFd(fd: std.posix.socket_t) XevTcp {
         return XevTcp{ .tcp = xev.TCP.initFd(fd) };
     }
 
@@ -310,12 +310,12 @@ test "xev_tcp: write_pending prevents completion overwrite" {
     // Fill up the send buffer by writing a very large chunk with a small
     // SO_SNDBUF. After the first write, a second should no-op because the
     // first is still pending.
-    _ = std.posix.setsockopt(
+    std.posix.setsockopt(
         client.tcp.fd,
         std.posix.SOL.SOCKET,
         std.posix.SO.SNDBUF,
         &std.mem.toBytes(@as(c_int, 1024)),
-    );
+    ) catch {};
 
     const big_msg = [_]u8{0xAA} ** (1024 * 1024); // 1 MB
     client.write(&loop, &big_msg);
