@@ -136,6 +136,7 @@ pub const XevTcp = struct {
         self.read_pending = true;
         self.read_result = 0;
         std.log.info("xev_tcp: read submitted (buf={} bytes)", .{buf.len});
+        std.debug.print("[TRACE] xev_tcp: read() submitting buf={} bytes, fd={}\n", .{ buf.len, self.tcp.fd });
         self.tcp.read(loop, &self.read_completion, .{ .slice = buf }, XevTcp, self, readCallback);
     }
 
@@ -151,6 +152,7 @@ pub const XevTcp = struct {
         s.read_result = r catch 0;
         s.read_pending = false;
         std.log.info("xev_tcp: read completed (result={})", .{s.read_result});
+        std.debug.print("[TRACE] xev_tcp: readCallback result={} pending={}\n", .{ s.read_result, s.read_pending });
         if (s.read_result == 0) s.eof = true;
         return .disarm;
     }
