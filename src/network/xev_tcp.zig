@@ -173,6 +173,7 @@ pub const XevTcp = struct {
         self.write_pending = true;
         self.write_result = 0;
         std.log.info("xev_tcp: write submitted (data={} bytes)", .{data.len});
+        std.debug.print("[TRACE] xev_tcp: write() submitting {} bytes, fd={}\n", .{ data.len, self.tcp.fd });
         self.tcp.write(loop, &self.write_completion, .{ .slice = data }, XevTcp, self, writeCallback);
     }
 
@@ -188,6 +189,7 @@ pub const XevTcp = struct {
         s.write_result = r catch 0;
         s.write_pending = false;
         std.log.info("xev_tcp: write completed (result={})", .{s.write_result});
+        std.debug.print("[TRACE] xev_tcp: writeCallback result={}\n", .{s.write_result});
         return .disarm;
     }
 
@@ -401,6 +403,85 @@ test "xev_tcp: bidirectionhal read and write do not interfere" {
     try std.testing.expectEqual(msg_ab.len, b.read_result);
     try std.testing.expectEqualSlices(u8, msg_ba, a_buf[0..a.read_result]);
     try std.testing.expectEqualSlices(u8, msg_ab, b_buf[0..b.read_result]);
+}
+
+test "xev_tcp: real TCP sequential write then read (repro handshake hang)" {
+    const builtin = @import("builtin");
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .freebsd) return error.SkipZigTest;
+
+    var tpool = xev.ThreadPool.init(.{});
+    defer tpool.deinit();
+    defer tpool.shutdown();
+    var loop = try xev.Loop.init(.{ .thread_pool = &tpool });
+    defer loop.deinit();
+
+    // Use port 0 for OS-assigned random port (Zig #14907).
+    var address = try std.net.Address.parseIp4("127.0.0.1", 0);
+    var server = try XevTcp.init(address);
+    defer {
+        server.close(&loop);
+        loop.run(.until_done) catch {};
+    }
+    try server.bind(address);
+    try server.listen(1);
+
+    // Retrieve the actual port assigned by the OS.
+    var sock_len = address.getOsSockLen();
+    try std.posix.getsockname(server.tcp.fd, &address.any, &sock_len);
+
+    var client = try XevTcp.init(address);
+    defer {
+        client.close(&loop);
+        loop.run(.until_done) catch {};
+    }
+
+    // ---- Phase 1: Accept and connect (simultaneous, like libxev test) ----
+    var accepted: ?xev.TCP = null;
+    server.accept(&loop, &accepted);
+
+    var connected: bool = false;
+    client.tcp.connect(&loop, &client.completion, address, bool, &connected, (struct {
+        fn cb(
+            ud: ?*bool,
+            _: *xev.Loop,
+            _: *xev.Completion,
+            _: xev.TCP,
+            r: xev.ConnectError!void,
+        ) xev.CallbackAction {
+            ud.?.* = if (r) |_| true else |_| false;
+            return .disarm;
+        }
+    }).cb);
+
+    try loop.run(.until_done);
+    try std.testing.expect(accepted != null);
+    try std.testing.expect(connected);
+
+    var server_conn = XevTcp{ .tcp = accepted.? };
+    defer {
+        server_conn.close(&loop);
+        loop.run(.until_done) catch {};
+    }
+
+    // ---- Phase 2: Sequential write then read (mimics production flow) ----
+    // Client writes data first, pump to completion.
+    const msg = "hello_real_tcp_handshake";
+    client.write(&loop, msg);
+    try loop.run(.until_done);
+    try std.testing.expectEqual(msg.len, client.write_result);
+    try std.testing.expect(!client.write_pending);
+
+    // Server reads AFTER client write completed (sequential, not simultaneous).
+    // This is the exact pattern that hangs in production: data is already in
+    // the kernel TCP receive buffer when the server submits its read.
+    var recv_buf: [128]u8 = undefined;
+    server_conn.read(&loop, &recv_buf);
+    try loop.run(.until_done);
+    try std.testing.expectEqual(msg.len, server_conn.read_result);
+    try std.testing.expect(!server_conn.read_pending);
+    try std.testing.expect(!server_conn.isEof());
+    try std.testing.expectEqualSlices(u8, msg, recv_buf[0..server_conn.read_result]);
 }
 
 test "xev_tcp: same-connection read and write use separate completions" {
