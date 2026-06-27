@@ -136,12 +136,10 @@ pub const XevTcp = struct {
         self.read_pending = true;
         self.read_result = 0;
         std.log.info("xev_tcp: read submitted (buf={} bytes)", .{buf.len});
-        std.debug.print("[TRACE] xev_tcp: read() submitting buf={} bytes, fd={}\n", .{ buf.len, self.tcp.fd });
         // tcp.read() sets c.* = .{...} which defaults flags.state to .dead.
         // stop_completion() does nothing for .dead non-timer ops (kqueue.zig:948).
         // Set state back to .adding so submit() properly starts the completion.
         self.tcp.read(loop, &self.read_completion, .{ .slice = buf }, XevTcp, self, readCallback);
-        std.debug.print("[TRACE] xev_tcp: after tcp.read, read_completion.state={}\n", .{self.read_completion.flags.state});
         self.read_completion.flags.state = .adding;
     }
 
@@ -157,7 +155,6 @@ pub const XevTcp = struct {
         s.read_result = r catch 0;
         s.read_pending = false;
         std.log.info("xev_tcp: read completed (result={})", .{s.read_result});
-        std.debug.print("[TRACE] xev_tcp: readCallback result={} pending={}\n", .{ s.read_result, s.read_pending });
         if (s.read_result == 0) s.eof = true;
         return .disarm;
     }
@@ -180,12 +177,10 @@ pub const XevTcp = struct {
         self.write_pending = true;
         self.write_result = 0;
         std.log.info("xev_tcp: write submitted (data={} bytes)", .{data.len});
-        std.debug.print("[TRACE] xev_tcp: write() submitting {} bytes, fd={}\n", .{ data.len, self.tcp.fd });
         // xev.Completion defaults to state=.dead, which routes through
         // stop_completion() instead of start(). Explicitly reset to .adding
         // so the completion is properly registered with kqueue.
         self.tcp.write(loop, &self.write_completion, .{ .slice = data }, XevTcp, self, writeCallback);
-        std.debug.print("[TRACE] xev_tcp: after tcp.write, write_completion.state={}\n", .{self.write_completion.flags.state});
         self.write_completion.flags.state = .adding;
     }
 
@@ -201,7 +196,6 @@ pub const XevTcp = struct {
         s.write_result = r catch 0;
         s.write_pending = false;
         std.log.info("xev_tcp: write completed (result={})", .{s.write_result});
-        std.debug.print("[TRACE] xev_tcp: writeCallback result={}\n", .{s.write_result});
         return .disarm;
     }
 
