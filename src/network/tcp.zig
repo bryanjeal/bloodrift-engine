@@ -1,7 +1,7 @@
 // TCP transport implementation.
 //
-// TcpTransport wraps a std.net.Stream and exposes the Transport vtable.
-// TcpListener wraps a std.net.Server and handles incoming connections.
+// TcpTransport wraps a std.Io.net.Stream and exposes the Transport vtable.
+// TcpListener wraps a std.Io.net.Server and handles incoming connections.
 //
 // Both support a configurable receive timeout (SO_RCVTIMEO) so callers
 // can poll for data without blocking indefinitely. Callers interpret
@@ -28,23 +28,23 @@ pub const makeTestPair = os.makeSocketPair;
 /// Caller must keep this alive for the lifetime of any Transport handle
 /// derived from it.
 pub const TcpTransport = struct {
-    stream: std.net.Stream,
+    stream: std.Io.net.Stream,
 
     /// Connect to a remote address.
-    pub fn connect(address: std.net.Address) !TcpTransport {
-        const stream = try std.net.tcpConnectToAddress(address);
+    pub fn connect(address: std.Io.net.IpAddress) !TcpTransport {
+        const stream = try std.Io.net.tcpConnectToAddress(address);
         return .{ .stream = stream };
     }
 
     pub fn deinit(self: *TcpTransport) void {
-        self.stream.close();
+        _ = std.c.close(self.stream.socket.handle);
         self.* = undefined;
     }
 
     /// Set a receive timeout. read() returns error.WouldBlock after timeout_ms.
     /// Pass 0 to disable the timeout (block indefinitely).
     pub fn setRecvTimeout(self: *TcpTransport, timeout_ms: u32) !void {
-        try os.setSockRecvTimeout(self.stream.handle, timeout_ms);
+        try os.setSockRecvTimeout(self.stream.socket.handle, timeout_ms);
     }
 
     /// Return a Transport handle backed by this TcpTransport.
@@ -60,18 +60,18 @@ pub const TcpTransport = struct {
     fn sendImpl(ptr: *anyopaque, bytes: []const u8) anyerror!void {
         const self: *TcpTransport = @ptrCast(@alignCast(ptr));
         std.debug.assert(bytes.len > 0);
-        try os.socketSendAll(self.stream.handle, bytes);
+        try os.socketSendAll(self.stream.socket.handle, bytes);
     }
 
     fn recvImpl(ptr: *anyopaque, buf: []u8) anyerror!usize {
         const self: *TcpTransport = @ptrCast(@alignCast(ptr));
         std.debug.assert(buf.len > 0);
-        return os.socketRecv(self.stream.handle, buf);
+        return os.socketRecv(self.stream.socket.handle, buf);
     }
 
     fn closeImpl(ptr: *anyopaque) void {
         const self: *TcpTransport = @ptrCast(@alignCast(ptr));
-        self.stream.close();
+        _ = std.c.close(self.stream.socket.handle);
     }
 
     const vtable: Transport.VTable = .{
@@ -87,10 +87,10 @@ pub const TcpTransport = struct {
 
 /// A TCP listening socket. Stack-allocatable.
 pub const TcpListener = struct {
-    server: std.net.Server,
+    server: std.Io.net.Server,
 
     /// Bind and begin listening on the given address.
-    pub fn init(address: std.net.Address) !TcpListener {
+    pub fn init(address: std.Io.net.IpAddress) !TcpListener {
         const server = try address.listen(.{ .reuse_address = true });
         return .{ .server = server };
     }
@@ -147,8 +147,8 @@ pub const TcpListener = struct {
 
 test "tcp: connect and echo via socketpair" {
     const fds = try makeTestPair();
-    var client = TcpTransport{ .stream = .{ .handle = fds[0] } };
-    var server = TcpTransport{ .stream = .{ .handle = fds[1] } };
+    var client = TcpTransport{ .stream = .{ .socket = .{ .handle = fds[0], .address = .{ .ip4 = .{ .bytes = .{ 0, 0, 0, 0 }, .port = 0 } } } } };
+    var server = TcpTransport{ .stream = .{ .socket = .{ .handle = fds[1], .address = .{ .ip4 = .{ .bytes = .{ 0, 0, 0, 0 }, .port = 0 } } } } };
     defer client.deinit();
     defer server.deinit();
 
@@ -166,7 +166,7 @@ test "tcp: connect and echo via socketpair" {
 
 test "tcp: vtable close is idempotent via stream" {
     const fds = try makeTestPair();
-    var t = TcpTransport{ .stream = .{ .handle = fds[0] } };
+    var t = TcpTransport{ .stream = .{ .socket = .{ .handle = fds[0], .address = .{ .ip4 = .{ .bytes = .{ 0, 0, 0, 0 }, .port = 0 } } } } };
     os.closeSocket(fds[1]);
     const handle = t.transport();
     handle.close(); // must not panic or assert-fail

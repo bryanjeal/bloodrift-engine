@@ -271,10 +271,8 @@ const TestEntry = struct {
 const TestStore = SidecarStore(TestEntry, 16, 1024, 4);
 
 test "SidecarStore: add and get" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    var store = try TestStore.init(gpa.allocator());
-    defer store.deinit(gpa.allocator());
+    var store = try TestStore.init(std.testing.allocator);
+    defer store.deinit(std.testing.allocator);
 
     try store.add(100, .{ .entity = 100, .value = 42 });
     const entry = store.get(100).?;
@@ -283,10 +281,8 @@ test "SidecarStore: add and get" {
 }
 
 test "SidecarStore: remove with swap-and-pop" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    var store = try TestStore.init(gpa.allocator());
-    defer store.deinit(gpa.allocator());
+    var store = try TestStore.init(std.testing.allocator);
+    defer store.deinit(std.testing.allocator);
 
     try store.add(1, .{ .entity = 1, .value = 10 });
     try store.add(2, .{ .entity = 2, .value = 20 });
@@ -306,10 +302,8 @@ test "SidecarStore: remove with swap-and-pop" {
 }
 
 test "SidecarStore: capacity exhaustion" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    var store = try TestStore.init(gpa.allocator());
-    defer store.deinit(gpa.allocator());
+    var store = try TestStore.init(std.testing.allocator);
+    defer store.deinit(std.testing.allocator);
 
     // Fill to capacity.
     for (0..16) |i| {
@@ -324,10 +318,8 @@ test "SidecarStore: capacity exhaustion" {
 }
 
 test "SidecarStore: duplicate entity rejected" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    var store = try TestStore.init(gpa.allocator());
-    defer store.deinit(gpa.allocator());
+    var store = try TestStore.init(std.testing.allocator);
+    defer store.deinit(std.testing.allocator);
 
     try store.add(42, .{ .entity = 42, .value = 1 });
     const result = store.add(42, .{ .entity = 42, .value = 2 });
@@ -335,10 +327,8 @@ test "SidecarStore: duplicate entity rejected" {
 }
 
 test "SidecarStore: remove and re-add reuses slots" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    var store = try TestStore.init(gpa.allocator());
-    defer store.deinit(gpa.allocator());
+    var store = try TestStore.init(std.testing.allocator);
+    defer store.deinit(std.testing.allocator);
 
     try store.add(1, .{ .entity = 1, .value = 10 });
     store.remove(1);
@@ -351,10 +341,8 @@ test "SidecarStore: remove and re-add reuses slots" {
 }
 
 test "SidecarStore: snapshot and restore roundtrip" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    var store = try TestStore.init(gpa.allocator());
-    defer store.deinit(gpa.allocator());
+    var store = try TestStore.init(std.testing.allocator);
+    defer store.deinit(std.testing.allocator);
 
     // Add entries and snapshot at tick 10.
     try store.add(1, .{ .entity = 1, .value = 100 });
@@ -384,11 +372,9 @@ test "SidecarStore: snapshot and restore roundtrip" {
 }
 
 test "SidecarStore: ring buffer overwrites oldest" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
     // snapshot_depth = 4, so 5th snapshot overwrites the 1st.
-    var store = try TestStore.init(gpa.allocator());
-    defer store.deinit(gpa.allocator());
+    var store = try TestStore.init(std.testing.allocator);
+    defer store.deinit(std.testing.allocator);
 
     try store.add(1, .{ .entity = 1, .value = 0 });
 
@@ -406,19 +392,15 @@ test "SidecarStore: ring buffer overwrites oldest" {
 }
 
 test "SidecarStore: restore non-existent tick returns false" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    var store = try TestStore.init(gpa.allocator());
-    defer store.deinit(gpa.allocator());
+    var store = try TestStore.init(std.testing.allocator);
+    defer store.deinit(std.testing.allocator);
 
     try std.testing.expect(!store.restore(42));
 }
 
 test "SidecarStore: items iterates all active entries" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    var store = try TestStore.init(gpa.allocator());
-    defer store.deinit(gpa.allocator());
+    var store = try TestStore.init(std.testing.allocator);
+    defer store.deinit(std.testing.allocator);
 
     try store.add(10, .{ .entity = 10, .value = 1 });
     try store.add(20, .{ .entity = 20, .value = 2 });
@@ -434,10 +416,8 @@ test "SidecarStore: items iterates all active entries" {
 }
 
 test "SidecarStore: get returns null for missing entity" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    var store = try TestStore.init(gpa.allocator());
-    defer store.deinit(gpa.allocator());
+    var store = try TestStore.init(std.testing.allocator);
+    defer store.deinit(std.testing.allocator);
 
     try std.testing.expect(store.get(999) == null);
 }

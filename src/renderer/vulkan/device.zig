@@ -121,7 +121,7 @@ fn findQueueFamilies(
         const idx: u32 = @intCast(i);
         if (fam.queue_flags.graphics_bit) graphics = idx;
         const supports_present = try vki.getPhysicalDeviceSurfaceSupportKHR(device, idx, surface);
-        if (supports_present == vk.TRUE) present = idx;
+        if (supports_present == .true) present = idx;
         if (graphics != null and present != null) break;
     }
     return .{

@@ -89,8 +89,8 @@ const tcp = @import("tcp.zig");
 
 test "framing: roundtrip empty payload" {
     const fds = try tcp.makeTestPair();
-    var sender = tcp.TcpTransport{ .stream = .{ .handle = fds[0] } };
-    var receiver = tcp.TcpTransport{ .stream = .{ .handle = fds[1] } };
+    var sender = tcp.TcpTransport{ .stream = .{ .socket = .{ .handle = fds[0], .address = .{ .ip4 = .{ .bytes = .{ 0, 0, 0, 0 }, .port = 0 } } } } };
+    var receiver = tcp.TcpTransport{ .stream = .{ .socket = .{ .handle = fds[1], .address = .{ .ip4 = .{ .bytes = .{ 0, 0, 0, 0 }, .port = 0 } } } } };
     defer sender.deinit();
     defer receiver.deinit();
 
@@ -103,8 +103,8 @@ test "framing: roundtrip empty payload" {
 
 test "framing: roundtrip small payload" {
     const fds = try tcp.makeTestPair();
-    var sender = tcp.TcpTransport{ .stream = .{ .handle = fds[0] } };
-    var receiver = tcp.TcpTransport{ .stream = .{ .handle = fds[1] } };
+    var sender = tcp.TcpTransport{ .stream = .{ .socket = .{ .handle = fds[0], .address = .{ .ip4 = .{ .bytes = .{ 0, 0, 0, 0 }, .port = 0 } } } } };
+    var receiver = tcp.TcpTransport{ .stream = .{ .socket = .{ .handle = fds[1], .address = .{ .ip4 = .{ .bytes = .{ 0, 0, 0, 0 }, .port = 0 } } } } };
     defer sender.deinit();
     defer receiver.deinit();
 
@@ -118,8 +118,8 @@ test "framing: roundtrip small payload" {
 
 test "framing: roundtrip multiple frames" {
     const fds = try tcp.makeTestPair();
-    var sender = tcp.TcpTransport{ .stream = .{ .handle = fds[0] } };
-    var receiver = tcp.TcpTransport{ .stream = .{ .handle = fds[1] } };
+    var sender = tcp.TcpTransport{ .stream = .{ .socket = .{ .handle = fds[0], .address = .{ .ip4 = .{ .bytes = .{ 0, 0, 0, 0 }, .port = 0 } } } } };
+    var receiver = tcp.TcpTransport{ .stream = .{ .socket = .{ .handle = fds[1], .address = .{ .ip4 = .{ .bytes = .{ 0, 0, 0, 0 }, .port = 0 } } } } };
     defer sender.deinit();
     defer receiver.deinit();
 
@@ -136,15 +136,15 @@ test "framing: roundtrip multiple frames" {
 
 test "framing: rejects oversized frame" {
     const fds = try tcp.makeTestPair();
-    var sender = tcp.TcpTransport{ .stream = .{ .handle = fds[0] } };
-    var receiver = tcp.TcpTransport{ .stream = .{ .handle = fds[1] } };
+    var sender = tcp.TcpTransport{ .stream = .{ .socket = .{ .handle = fds[0], .address = .{ .ip4 = .{ .bytes = .{ 0, 0, 0, 0 }, .port = 0 } } } } };
+    var receiver = tcp.TcpTransport{ .stream = .{ .socket = .{ .handle = fds[1], .address = .{ .ip4 = .{ .bytes = .{ 0, 0, 0, 0 }, .port = 0 } } } } };
     defer sender.deinit();
     defer receiver.deinit();
 
     // Write a header claiming a payload larger than max_frame_bytes.
     var bad_header: [header_bytes]u8 = undefined;
     std.mem.writeInt(u32, &bad_header, max_frame_bytes + 1, .big);
-    try sender.stream.writeAll(&bad_header);
+    _ = std.c.send(sender.stream.socket.handle, &bad_header, bad_header.len, 0);
 
     var buf: [256]u8 = undefined;
     const result = recvFrame(receiver.transport(), &buf);

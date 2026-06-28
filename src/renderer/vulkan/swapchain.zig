@@ -147,7 +147,7 @@ fn createSwapchain(
         .pre_transform = caps.current_transform,
         .composite_alpha = .{ .opaque_bit_khr = true },
         .present_mode = present_mode,
-        .clipped = vk.TRUE,
+        .clipped = .true,
     }, null);
 }
 

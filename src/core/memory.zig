@@ -239,9 +239,7 @@ test "ArenaAllocator: reset allows reuse" {
 }
 
 test "PoolAllocator: alloc and free cycle" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const backing = gpa.allocator();
+    const backing = std.testing.allocator;
 
     const Pool = PoolAllocator(types.EntityId);
     var pool = try Pool.init(backing, 4);
@@ -263,9 +261,7 @@ test "PoolAllocator: alloc and free cycle" {
 }
 
 test "PoolAllocator: exhaustion returns null" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const backing = gpa.allocator();
+    const backing = std.testing.allocator;
 
     const Pool = PoolAllocator(u32);
     var pool = try Pool.init(backing, 2);
@@ -278,9 +274,7 @@ test "PoolAllocator: exhaustion returns null" {
 }
 
 test "PoolAllocator: capacity unchanged after alloc/free" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const backing = gpa.allocator();
+    const backing = std.testing.allocator;
 
     const Pool = PoolAllocator(u64);
     var pool = try Pool.init(backing, 8);
@@ -341,9 +335,7 @@ test "ArenaAllocator: multiple resets restore full capacity" {
 }
 
 test "PoolAllocator: capacity = 1 edge case" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const backing = gpa.allocator();
+    const backing = std.testing.allocator;
 
     const Pool = PoolAllocator(u32);
     var pool = try Pool.init(backing, 1);
@@ -369,9 +361,7 @@ test "PoolAllocator: capacity = 1 edge case" {
 }
 
 test "PoolAllocator: fill all, free all, fill all again" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const backing = gpa.allocator();
+    const backing = std.testing.allocator;
 
     const cap: u32 = 8;
     const Pool = PoolAllocator(u64);
@@ -404,9 +394,7 @@ test "PoolAllocator: fill all, free all, fill all again" {
 }
 
 test "PoolAllocator: len tracks correctly across interleaved alloc/free" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const backing = gpa.allocator();
+    const backing = std.testing.allocator;
 
     const Pool = PoolAllocator(u32);
     var pool = try Pool.init(backing, 4);
