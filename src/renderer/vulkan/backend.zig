@@ -388,7 +388,7 @@ pub const VulkanBackend = struct {
         // CPU throttling: wait for the GPU to finish the work submitted
         // max_frames_in_flight frames ago. Fences are indexed by frame
         // counter, not by swapchain image index.
-        _ = try vkd.waitForFences(dev, 1, @ptrCast(&self.commands.fences[frame]), vk.TRUE, std.math.maxInt(u64));
+        _ = try vkd.waitForFences(dev, self.commands.fences[frame..][0..1], .true, std.math.maxInt(u64));
         // OutOfDateKHR / SuboptimalKHR signal the swapchain is stale (resize,
         // display change). Mark stale + no-op this frame; resize() clears.
         // Acquire semaphore is per-frame-in-flight: the same-frame acquire→submit
@@ -414,7 +414,7 @@ pub const VulkanBackend = struct {
             self.have_timestamp_prev[frame] = false;
             return;
         }
-        try vkd.resetFences(dev, 1, @ptrCast(&self.commands.fences[frame]));
+        try vkd.resetFences(dev, self.commands.fences[frame..][0..1]);
         // Command buffers are per-swapchain-image: each image has dedicated
         // recording state so we never re-record into a buffer that references
         // a different image's framebuffer.
@@ -491,13 +491,13 @@ pub const VulkanBackend = struct {
                     // sees CPU writes without an explicit flush.  The call is a
                     // defensive no-op; if it somehow fails, the barrier below
                     // still ensures correct ordering.
-                    _ = vkd.flushMappedMemoryRanges(dev, 1, @ptrCast(&flush_range)) catch {};
+                    _ = vkd.flushMappedMemoryRanges(dev, &.{flush_range}) catch {};
                     const copy_region = vk.BufferCopy{
                         .src_offset = 0,
                         .dst_offset = 0,
                         .size = upload_size,
                     };
-                    vkd.cmdCopyBuffer(cmd, self.staging_buffer, self.instance_buffer, 1, @ptrCast(&copy_region));
+                    vkd.cmdCopyBuffer(cmd, self.staging_buffer, self.instance_buffer, &.{copy_region});
                 },
                 .update_buffer => {
                     // Unified memory: vkCmdUpdateBuffer reads directly from the
@@ -529,11 +529,8 @@ pub const VulkanBackend = struct {
                 .{ .transfer_bit = true },
                 .{ .vertex_shader_bit = true, .fragment_shader_bit = true },
                 .{},
-                0,
                 null,
-                1,
-                @ptrCast(&buf_barrier),
-                0,
+                &.{buf_barrier},
                 null,
             );
         }
@@ -560,21 +557,19 @@ pub const VulkanBackend = struct {
             .max_depth = 1,
         };
         const scissor = vk.Rect2D{ .offset = .{ .x = 0, .y = 0 }, .extent = self.swapchain.extent };
-        vkd.cmdSetViewport(cmd, 0, 1, @ptrCast(&vp));
-        vkd.cmdSetScissor(cmd, 0, 1, @ptrCast(&scissor));
+        vkd.cmdSetViewport(cmd, 0, &.{vp});
+        vkd.cmdSetScissor(cmd, 0, &.{scissor});
         // Bind the shared vertex buffer (unit quad) once for the entire frame.
         const offset: vk.DeviceSize = 0;
-        vkd.cmdBindVertexBuffers(cmd, 0, 1, @ptrCast(&self.vertex_buffer), @ptrCast(&offset));
+        vkd.cmdBindVertexBuffers(cmd, 0, &.{self.vertex_buffer}, &.{offset});
         // Bind the instance SSBO descriptor set for the entire frame.
         vkd.cmdBindDescriptorSets(
             cmd,
             .graphics,
             self.material_layouts[0],
             0,
-            1,
-            @ptrCast(&self.descriptor_set),
-            0,
-            null,
+            &.{self.descriptor_set},
+            &[_]u32{},
         );
 
         if (queue.count == 0) return;
@@ -640,7 +635,7 @@ pub const VulkanBackend = struct {
         // vkAcquireNextImageKHR in beginFrame), signal the per-image render
         // semaphore (waited on by vkQueuePresentKHR for this specific image),
         // and signal the per-frame fence for CPU throttling.
-        try vkd.queueSubmit(self.device.graphics_queue, 1, &[_]vk.SubmitInfo{.{
+        try vkd.queueSubmit(self.device.graphics_queue, &[_]vk.SubmitInfo{.{
             .wait_semaphore_count = 1,
             .p_wait_semaphores = @ptrCast(&self.commands.acquire_sem[frame]),
             .p_wait_dst_stage_mask = @ptrCast(&wait_stage),
@@ -968,7 +963,7 @@ fn createInstanceDescriptor(
         .offset = 0,
         .range = vk.WHOLE_SIZE,
     };
-    vkd.updateDescriptorSets(device, 1, &[_]vk.WriteDescriptorSet{.{
+    vkd.updateDescriptorSets(device, &.{.{
         .dst_set = set,
         .dst_binding = 0,
         .dst_array_element = 0,
@@ -977,7 +972,7 @@ fn createInstanceDescriptor(
         .p_image_info = undefined,
         .p_buffer_info = @ptrCast(&buf_info),
         .p_texel_buffer_view = undefined,
-    }}, 0, null);
+    }}, &.{});
 
     return .{ .layout = layout, .pool = pool, .set = set };
 }

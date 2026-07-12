@@ -2,31 +2,31 @@
     .name = .bloodrift_engine,
     .fingerprint = 0x8d27edc972cea472,
     .version = "0.1.0",
-    .minimum_zig_version = "0.15.1",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .zflecs = .{
-            .url = "https://github.com/zig-gamedev/zflecs/archive/c832982bdde5ec0d4cd21b4555badfed904ccec4.tar.gz",
-            .hash = "zflecs-0.2.0-dev-1PN3ysolPAABJMgsIgYPrs0G278g-f7mCt9kNG9IMq8V",
+            .url = "git+https://github.com/zig-gamedev/zflecs#9c2771cf0cae508db622821bb7deac6e9370a9de",
+            .hash = "zflecs-0.2.0-dev-1PN3yvUPQQBUdlukoUPPTpW5NLhkagNIEtOq0C0S3bmf",
         },
         .zsdl = .{
-            .url = "https://github.com/zig-gamedev/zsdl/archive/139434f5833ee323a34affae1c3f2edae96276b3.tar.gz",
-            .hash = "zsdl-0.4.0-dev-rFpjEznjXwB_GXp7IQWKT8MggbxL5Vjz1udhfp0MEcnz",
+            .url = "git+https://github.com/zig-gamedev/zsdl#3dc74d96c72a3467e9b49b596deaccc8346c5fa8",
+            .hash = "zsdl-0.4.0-dev-rFpjE7jpXwBGY4QQSsKCQU4sAhFQt20rSCEpweF-PP4g",
         },
         .vulkan = .{
-            .url = "git+https://github.com/Snektron/vulkan-zig#bed9e2d2241ade679b78892c829f41cecc2ef5ef",
-            .hash = "vulkan-0.0.0-r7YtxwA_AwAU4rmOITZD_KJs11Kie1sv0t-pcMDQGIqw",
+            .url = "git+https://github.com/Snektron/vulkan-zig?ref=zig-0.16-compat#b496a6a561ffbbeb530b0f9ed4e059f88c0723a5",
+            .hash = "vulkan-0.0.0-r7Ytx7N9AwD7IZt5_XNHtkJ4G9qY0pCH-cpcOsbL8wzD",
         },
         .zgui = .{
-            .url = "https://github.com/zig-gamedev/zgui/archive/ce016156a8520c438e886cd6c0b605e10ee7af3d.tar.gz",
-            .hash = "zgui-0.6.0-dev--L6sZKkSbgCUBXLVfwJDPpMkETz7ll-mmQYQae-nMxjt",
+            .url = "git+https://github.com/zig-gamedev/zgui#bfbebed372723d1f585f86fc0a550232b3427f4d",
+            .hash = "zgui-0.6.0-dev--L6sZJhIbgAjWdK5h6xuVUrsOcD-RdqEOEPf03Zgi4mF",
         },
         .ztracy = .{
             .url = "git+https://github.com/zig-gamedev/ztracy#d95d2a193b9f97944a17026c9a42b5d0f9a88c94",
             .hash = "ztracy-0.14.0-dev-zHJSqzUHGQAmhJybhlwtl1QKevUBw4M5YKZqPfWx2y99",
         },
         .libxev = .{
-            .url = "https://github.com/mitchellh/libxev/archive/d398cba9bf711fa4dd21c48bf73d25e4d8986408.tar.gz",
-            .hash = "libxev-0.0.0-86vtc689EwAjQWysidPm9NKkAwwUNByiE3kZTg_xu0Hp",
+            .url = "git+https://github.com/bryanjeal/libxev?ref=fix/kqueue-tick-flush-and-queue-next#7497c85dfc3ae5141308944f2cd47c836772c300",
+            .hash = "libxev-0.0.0-86vtc6BWFAAs_tGsasNfjQsxSsElhddIUnqVwGhwdnsu",
         },
     },
     .paths = .{""},

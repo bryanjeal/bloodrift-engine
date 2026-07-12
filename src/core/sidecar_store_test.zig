@@ -20,10 +20,8 @@ const TestEntry = struct {
 const TestStore = sidecar_store.SidecarStore(TestEntry, 16, 1024, 4);
 
 test "SidecarStore_Items_ReturnsBoundedSlice" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    var store = try TestStore.init(gpa.allocator());
-    defer store.deinit(gpa.allocator());
+    var store = try TestStore.init(std.testing.allocator);
+    defer store.deinit(std.testing.allocator);
 
     // Empty store: items().len must be zero, not the backing-array capacity.
     try std.testing.expectEqual(@as(usize, 0), store.items().len);
@@ -50,10 +48,8 @@ test "SidecarStore_Items_ReturnsBoundedSlice" {
 }
 
 test "SidecarStore_EntityIds_ReturnsBoundedSlice" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    var store = try TestStore.init(gpa.allocator());
-    defer store.deinit(gpa.allocator());
+    var store = try TestStore.init(std.testing.allocator);
+    defer store.deinit(std.testing.allocator);
 
     // Empty store: entityIds().len must be zero.
     try std.testing.expectEqual(@as(usize, 0), store.entityIds().len);

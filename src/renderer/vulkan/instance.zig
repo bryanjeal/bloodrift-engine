@@ -63,7 +63,7 @@ fn createInstance(
     allocator: std.mem.Allocator,
 ) !vk.Instance {
     // Zig 0.15.2: ArrayList is unmanaged — allocator passed per call.
-    var extensions = std.ArrayList([*:0]const u8){};
+    var extensions = std.ArrayList([*:0]const u8).empty;
     defer extensions.deinit(allocator);
     try extensions.appendSlice(allocator, sdl_extensions);
     if (builtin.mode == .Debug) {
@@ -134,5 +134,5 @@ fn debugCallback(
         std.debug.panic("Vulkan validation error: {s}", .{msg});
     }
     std.log.warn("Vulkan validation: {s}", .{msg});
-    return vk.FALSE;
+    return .false;
 }

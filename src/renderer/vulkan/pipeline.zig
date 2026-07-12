@@ -178,7 +178,7 @@ fn createGraphicsPipelineFromModules(
     };
     const input_assembly = vk.PipelineInputAssemblyStateCreateInfo{
         .topology = .triangle_list,
-        .primitive_restart_enable = vk.FALSE,
+        .primitive_restart_enable = .false,
     };
     // Viewport + scissor are dynamic state - pipeline does not bake a size.
     // The backend calls vkCmdSetViewport / vkCmdSetScissor each frame after
@@ -198,14 +198,14 @@ fn createGraphicsPipelineFromModules(
         .p_dynamic_states = &dynamic_states,
     };
     const rasterizer = vk.PipelineRasterizationStateCreateInfo{
-        .depth_clamp_enable = vk.FALSE,
-        .rasterizer_discard_enable = vk.FALSE,
+        .depth_clamp_enable = .false,
+        .rasterizer_discard_enable = .false,
         .polygon_mode = .fill,
         // Back-face culling disabled - quad winding order has not been validated
         // against the isometric camera. Re-enable once winding is confirmed.
         .cull_mode = .{},
         .front_face = .clockwise,
-        .depth_bias_enable = vk.FALSE,
+        .depth_bias_enable = .false,
         .depth_bias_constant_factor = 0,
         .depth_bias_clamp = 0,
         .depth_bias_slope_factor = 0,
@@ -213,14 +213,14 @@ fn createGraphicsPipelineFromModules(
     };
     const multisampling = vk.PipelineMultisampleStateCreateInfo{
         .rasterization_samples = .{ .@"1_bit" = true },
-        .sample_shading_enable = vk.FALSE,
+        .sample_shading_enable = .false,
         .min_sample_shading = 1,
-        .alpha_to_coverage_enable = vk.FALSE,
-        .alpha_to_one_enable = vk.FALSE,
+        .alpha_to_coverage_enable = .false,
+        .alpha_to_one_enable = .false,
     };
     // Blended materials use alpha blending; opaque materials write directly.
     const blend_attachment = vk.PipelineColorBlendAttachmentState{
-        .blend_enable = if (blended) vk.TRUE else vk.FALSE,
+        .blend_enable = if (blended) .true else .false,
         .src_color_blend_factor = if (blended) .src_alpha else .one,
         .dst_color_blend_factor = if (blended) .one_minus_src_alpha else .zero,
         .color_blend_op = .add,
@@ -230,7 +230,7 @@ fn createGraphicsPipelineFromModules(
         .color_write_mask = .{ .r_bit = true, .g_bit = true, .b_bit = true, .a_bit = true },
     };
     const color_blending = vk.PipelineColorBlendStateCreateInfo{
-        .logic_op_enable = vk.FALSE,
+        .logic_op_enable = .false,
         .logic_op = .copy,
         .attachment_count = 1,
         .p_attachments = @ptrCast(&blend_attachment),
@@ -251,7 +251,7 @@ fn createGraphicsPipelineFromModules(
         .subpass = 0,
         .base_pipeline_index = -1,
     };
-    var pipeline: vk.Pipeline = undefined;
-    _ = try vkd.createGraphicsPipelines(device, .null_handle, 1, @ptrCast(&create_info), null, @ptrCast(&pipeline));
-    return pipeline;
+    var pipelines: [1]vk.Pipeline = undefined;
+    _ = try vkd.createGraphicsPipelines(device, .null_handle, &.{create_info}, null, &pipelines);
+    return pipelines[0];
 }

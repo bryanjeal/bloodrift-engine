@@ -277,27 +277,15 @@ pub const World = struct {
 /// (field names derived from the component type name).
 /// Access via chunks.Health, chunks.Position, etc.
 pub fn ChunkTuple(comptime Components: []const type) type {
-    comptime var fields: [Components.len]std.builtin.Type.StructField = undefined;
+    comptime var names: [Components.len][:0]const u8 = undefined;
+    comptime var comptime_types: [Components.len]type = undefined;
     comptime {
         for (Components, 0..) |T, i| {
-            fields[i] = .{
-                .name = typeBaseName(T),
-                .type = []const T,
-                .default_value_ptr = null,
-                .is_comptime = false,
-                .alignment = @alignOf([]const T),
-            };
+            names[i] = typeBaseName(T);
+            comptime_types[i] = []const T;
         }
     }
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .backing_integer = null,
-            .fields = &fields,
-            .decls = &.{},
-            .is_tuple = false,
-        },
-    });
+    return @Struct(.auto, null, &names, &comptime_types, &@splat(.{}));
 }
 
 /// Extracts the base type name (after the last '.') from a fully qualified type.

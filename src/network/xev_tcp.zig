@@ -45,7 +45,7 @@ pub const XevTcp = struct {
     // ---- all fields above, all declarations below ----
 
     /// Create a new TCP, not yet connected or bound.
-    pub fn init(addr: std.net.Address) !XevTcp {
+    pub fn init(addr: std.Io.net.IpAddress) !XevTcp {
         return XevTcp{ .tcp = try xev.TCP.init(addr) };
     }
 
@@ -56,7 +56,7 @@ pub const XevTcp = struct {
     }
 
     /// Bind to an address (server-side).
-    pub fn bind(self: *XevTcp, addr: std.net.Address) !void {
+    pub fn bind(self: *XevTcp, addr: std.Io.net.IpAddress) !void {
         try self.tcp.bind(addr);
     }
 
@@ -95,7 +95,7 @@ pub const XevTcp = struct {
     pub fn connect(
         self: *XevTcp,
         loop: *xev.Loop,
-        addr: std.net.Address,
+        addr: std.Io.net.IpAddress,
     ) !void {
         var connected: bool = false;
         self.tcp.connect(loop, &self.completion, addr, bool, &connected, connectCallback);
@@ -291,7 +291,7 @@ test "xev_tcp: read_pending prevents completion overwrite" {
         server.close(&loop);
         loop.run(.until_done) catch {};
     }
-    std.posix.close(sv[0]); // unused client fd
+    _ = std.c.close(sv[0]); // unused client fd
 
     // Submit a read when there is no data, then pump.
     var recv_buf: [64]u8 = undefined;
@@ -335,7 +335,7 @@ test "xev_tcp: write_pending prevents completion overwrite" {
         client.close(&loop);
         loop.run(.until_done) catch {};
     }
-    defer std.posix.close(sv[1]); // unused server fd, closed after client
+    defer _ = std.c.close(sv[1]); // unused server fd, closed after client
 
     // Write a large chunk to try to fill the socket buffer. Don't read
     // from the other end, so the send buffer may back up.
@@ -423,7 +423,7 @@ test "xev_tcp: real TCP sequential write then read (repro handshake hang)" {
     defer loop.deinit();
 
     // Use port 0 for OS-assigned random port (Zig #14907).
-    var address = try std.net.Address.parseIp4("127.0.0.1", 0);
+    var address = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
     var server = try XevTcp.init(address);
     defer {
         server.close(&loop);
@@ -433,8 +433,8 @@ test "xev_tcp: real TCP sequential write then read (repro handshake hang)" {
     try server.listen(1);
 
     // Retrieve the actual port assigned by the OS.
-    var sock_len = address.getOsSockLen();
-    try std.posix.getsockname(server.tcp.fd, &address.any, &sock_len);
+    var sock_len: std.posix.socklen_t = @sizeOf(std.c.sockaddr);
+    _ = std.c.getsockname(server.tcp.fd, @ptrCast(&address.ip4), &sock_len);
 
     var client = try XevTcp.init(address);
     defer {
