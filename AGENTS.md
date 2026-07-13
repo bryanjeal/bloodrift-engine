@@ -1,17 +1,17 @@
-# Blood Rift Engine — Module Notes
+# Blood Rift Engine -- Module Notes
 
 ## Module Export Chain
 
 Engine subsystems are exposed via a nested root pattern:
 
 ```
-engine/src/root.zig          ← game code imports this as "engine"
-  └─ renderer/root.zig       ← engine.renderer.*
-       ├─ renderer.zig        ← Renderer, DrawCall (vtable abstraction)
-       └─ vulkan/root.zig     ← VulkanBackend
-  └─ platform/root.zig       ← engine.platform.*
-  └─ network/root.zig        ← engine.network.*
-  └─ core/root.zig           ← engine.core.*
+engine/src/root.zig          <- game code imports this as "engine"
+  L- renderer/root.zig       <- engine.renderer.*
+       L- renderer.zig        <- Renderer, DrawCall (vtable abstraction)
+       L- vulkan/root.zig     <- VulkanBackend
+  L- platform/root.zig       <- engine.platform.*
+  L- network/root.zig        <- engine.network.*
+  L- core/root.zig           <- engine.core.*
 ```
 
 Each subsystem's `root.zig` re-exports the public API. Internal modules are not importable by game code.
@@ -33,23 +33,39 @@ engine/
 └── build.zig.zon
 ```
 
-For Zig conventions (TIGER_STYLE overrides, antipatterns, code style), see the project root CLAUDE.md.
+For Zig conventions (TIGER_STYLE overrides, antipatterns, code style), see the project root AGENTS.md.
 
 ## linkSdl3 / linkVulkan Pattern
 
 Both functions are `pub` in `engine/build.zig` and **mirrored** in the root `build.zig`. Both copies must stay in sync.
 
 ```zig
-// In root build.zig — call for each executable that needs SDL3/Vulkan:
+// In root build.zig -- call for each executable that needs SDL3/Vulkan:
 linkSdl3(client_exe);
 linkVulkan(client_exe, vulkan_sdk);
 ```
 
 `linkVulkan` also adds SDL3 include paths so `@cImport(SDL_vulkan.h)` resolves in `backend.zig`.
 
+## Build and Test
+
+```bash
+zig build test              # Engine test suite (from engine/ directory)
+zig build test --watch      # Continuous testing during engine development
+```
+
+Run from the project root: `zig build test` also runs engine tests (engine is a dependency).
+
+## Zig 0.16.0 Compatibility Notes
+
+- Use vulkan-zig `zig-0.16-compat` branch (commit `b496a6a` in engine/build.zig.zon)
+- `std.ArrayList(T)` is unmanaged in 0.16.0: pass allocator to `.append`, `.deinit`, etc.
+- `std.BoundedArray` does not exist -- use plain local arrays
+- `vk.makeApiVersion` returns `vk.Version` (packed struct) -- `@bitCast` to assign to `u32` fields
+
 ## Renderer Abstraction Contract
 
-The `Renderer` type is now a comptime alias, not a runtime vtable wrapper. The `-Dbackend=` build option selects the concrete backend at compile time via `switch (build_options.renderer)`. Backends are validated at comptime via `assertRendererInterface()`.
+The `Renderer` type is a comptime alias, not a runtime vtable wrapper. The `-Dbackend=` build option selects the concrete backend at compile time via `switch (build_options.renderer)`. Backends are validated at comptime via `assertRendererInterface()`.
 
 ```zig
 const Renderer = @import("engine").renderer.Renderer; // comptime-selected type
@@ -58,12 +74,12 @@ var backend = try Renderer.init(
     window.handle,
     width,
     height,
-    @import("render/materials.zig").ALL_MATERIALS, // required materials parameter
+    @import("render/materials.zig").ALL_MATERIALS,
 );
-defer backend.deinit(); // deinit takes a pointer to the backend; method call auto-converts
+defer backend.deinit();
 ```
 
-All backend structs must implement the required interface: `beginFrame`, `submitQueue`, `endFrame`, `present`, `resize`, `deinit`. Violations are compile errors.
+All backend structs must implement: `beginFrame`, `submitQueue`, `endFrame`, `present`, `resize`, `deinit`. Violations are compile errors.
 
 `ShaderPayload` is a comptime-switched type:
 - `.vulkan` => `[]align(@alignOf(u32)) const u8` (SPIR-V)
@@ -74,7 +90,7 @@ Build with `-Dbackend=vulkan` (default) or `-Dbackend=webgpu`/`-Dbackend=opengl`
 
 ## Shader Compilation (glslc + WriteFile embed)
 
-SPIR-V files are build artifacts — **not committed to git**. The build system:
+SPIR-V files are build artifacts -- not committed to git. The build system:
 
 1. Runs `glslc` to produce `.spv` files
 2. Uses `addWriteFiles` to create Zig wrapper modules alongside the `.spv` files
@@ -98,7 +114,7 @@ The `zig build run` step calls `setEnvironmentVariable` for both vars using the 
 
 ## ECS Module (core/ecs.zig)
 
-The `World` struct wraps Flecs lifecycle and common operations. Raw zflecs bindings are re-exported as `World.zflecs` for advanced use (observers, custom queries, iterators). Game code should prefer `World` methods for common operations and use `World.zflecs` only when the wrapper doesn't provide what's needed.
+The `World` struct wraps Flecs lifecycle and common operations. Raw zflecs bindings are re-exported as `World.zflecs` for advanced use (observers, custom queries, iterators). Game code should prefer `World` methods for common operations and use `World.zflecs` only when the wrapper does not provide what is needed.
 
 ```zig
 const World = @import("engine").core.ecs.World;
@@ -116,32 +132,16 @@ desc.query.terms[0] = .{ .id = zflecs.id(MyComponent) };
 _ = zflecs.observer_init(world.raw, &desc);
 ```
 
-## Build & Test
-
-```bash
-zig build test              # Engine test suite (from engine/ directory)
-zig build test --watch      # Continuous testing during engine development
-```
-
-Run from the project root: `zig build test` also runs engine tests (engine is a dependency).
-
-## Zig 0.16.0 Compatibility Notes
-
-- Use vulkan-zig `zig-0.16-compat` branch (commit `b496a6a` in engine/build.zig.zon) — the old commit `bed9e2d` was for 0.15.2 compat
-- `std.ArrayList(T)` is unmanaged in 0.16.0: pass allocator to `.append`, `.deinit`, etc.
-- `std.BoundedArray` does not exist — use plain local arrays
-- `vk.makeApiVersion` returns `vk.Version` (packed struct) — `@bitCast` to assign to `u32` fields
-
 ## Vulkan Synchronization (Spec-Compliant)
 
 ### Authoritative References
 
 All synchronization decisions MUST cite at least one of:
 
-- **Vulkan 1.3 Specification** — §7 (Synchronization and Cache Control), §30.6 (Swapchain Creation), §30.10 (WSI Semaphore/Fence Contracts)
-- **Vulkan Programming Guide** (Graham Sellers, 2016) — Chapter 9 (Synchronization), Chapter 11 (The Swapchain)
-- **GPUOpen Vulkan Memory / Sync Primer** — <https://gpuopen.com/learn/vulkan-memory-sync-primer/>
-- **MoltenVK Best Practices** — <https://github.com/KhronosGroup/MoltenVK/blob/main/Docs/MoltenVK_Runtime_UserGuide.md>
+- **Vulkan 1.3 Specification** -- S7 (Synchronization and Cache Control), S30.6 (Swapchain Creation), S30.10 (WSI Semaphore/Fence Contracts)
+- **Vulkan Programming Guide** (Graham Sellers, 2016) -- Chapter 9 (Synchronization), Chapter 11 (The Swapchain)
+- **GPUOpen Vulkan Memory / Sync Primer** -- <https://gpuopen.com/learn/vulkan-memory-sync-primer/>
+- **MoltenVK Best Practices** -- <https://github.com/KhronosGroup/MoltenVK/blob/main/Docs/MoltenVK_Runtime_UserGuide.md>
 
 ### Indexing Rule (BLOCKING)
 
@@ -155,9 +155,9 @@ Counters over time:
 
 | Resource | Lifetime | Index by |
 |----------|----------|----------|
-| Acquire semaphore | Same-frame (acquire→submit) | Frame counter |
-| Render semaphore | Cross-frame (submit→present) | Swapchain image index |
-| In-flight fence | Same-frame (submit→CPU wait) | Frame counter |
+| Acquire semaphore | Same-frame (acquire->submit) | Frame counter |
+| Render semaphore | Cross-frame (submit->present) | Swapchain image index |
+| In-flight fence | Same-frame (submit->CPU wait) | Frame counter |
 | Command buffer | Per-swapchain-image (records into specific framebuffer) | Swapchain image index |
 | Framebuffer | Per-swapchain-image (attached to specific image view) | Swapchain image index |
 | Uniform/staging buffer | Per-frame-in-flight (CPU writes between fence signals) | Frame counter |

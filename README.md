@@ -16,7 +16,7 @@ The Blood Rift Engine is a modern, cross-platform game engine built in Zig. It p
 
 ### Prerequisites
 
-- Zig 0.15.2 or later
+- Zig 0.16.0 or later
 - Vulkan SDK (for development)
 - SDL3 development libraries (Windows only)
 
@@ -102,7 +102,7 @@ Each subsystem's `root.zig` re-exports its public API. Internal modules are not 
 
 ## Contributing
 
-See `docs/CONTRIBUTING.md` for development guidelines and `CLAUDE.md` for engine-specific conventions.
+See `docs/CONTRIBUTING.md` for development guidelines and `AGENTS.md` for engine-specific conventions.
 
 ## License
 
