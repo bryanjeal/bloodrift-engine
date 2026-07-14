@@ -5,7 +5,7 @@
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .zflecs = .{
-            .url = "git+https://github.com/bryanjeal/zflecs#b8548f2affed074a6302bddaa00595e771fd7c86",
+            .url = "git+https://github.com/bryanjeal/zflecs#4f61f74b63c79d32bc4606d21b438e9a23fc3173",
             .hash = "zflecs-0.2.0-dev-1PN3yvUPQQBUdlukoUPPTpW5NLhkagNIEtOq0C0S3bmf",
         },
         .zsdl = .{
