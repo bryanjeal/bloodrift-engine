@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .zflecs = .{
-            .url = "git+https://github.com/bryanjeal/zflecs#a315b681b75d36661426de2b6e025aa6ab80cb51",
-            .hash = "zflecs-0.2.0-dev-1PN3yvUPQQBUdlukoUPPTpW5NLhkagNIEtOq0C0S3bmf",
+            .url = "git+https://github.com/bryanjeal/zflecs#a315b6842336fc6059ec6304eb3b3196084380dc",
+            .hash = "zflecs-0.2.0-dev-1PN3ynMkQQBcINSK7wkUH02QNqReSAClkdZ5AodgNRIu",
         },
         .zsdl = .{
             .url = "git+https://github.com/zig-gamedev/zsdl#3dc74d96c72a3467e9b49b596deaccc8346c5fa8",
