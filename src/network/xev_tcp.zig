@@ -140,7 +140,14 @@ pub const XevTcp = struct {
         // stop_completion() does nothing for .dead non-timer ops (kqueue.zig:948).
         // Set state back to .adding so submit() properly starts the completion.
         self.tcp.read(loop, &self.read_completion, .{ .slice = buf }, XevTcp, self, readCallback);
-        self.read_completion.flags.state = .adding;
+        // io_uring's Completion.State is only { dead, active } (no .adding);
+        // its add() registers a .dead completion directly. kqueue/epoll need
+        // the .adding reset so submit() starts the completion instead of
+        // routing .dead through stop_completion().
+        switch (xev.backend) {
+            .io_uring => {},
+            else => self.read_completion.flags.state = .adding,
+        }
     }
 
     fn readCallback(
@@ -181,7 +188,10 @@ pub const XevTcp = struct {
         // stop_completion() instead of start(). Explicitly reset to .adding
         // so the completion is properly registered with kqueue.
         self.tcp.write(loop, &self.write_completion, .{ .slice = data }, XevTcp, self, writeCallback);
-        self.write_completion.flags.state = .adding;
+        switch (xev.backend) {
+            .io_uring => {},
+            else => self.write_completion.flags.state = .adding,
+        }
     }
 
     fn writeCallback(
