@@ -277,7 +277,7 @@ fn probeVulkanSdk(b: *std.Build) ?[]const u8 {
             const paths: []const []const u8 = &.{ "/usr/share/vulkan", "/usr/local/share/vulkan" };
             for (paths) |p| {
                 if (std.Io.Dir.cwd().openDir(b.graph.io, p, .{})) |*dir| {
-                    @constCast(dir).close();
+                    dir.close(b.graph.io);
                     return p;
                 } else |_| {}
             }
