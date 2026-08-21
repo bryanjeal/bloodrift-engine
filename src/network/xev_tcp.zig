@@ -51,7 +51,24 @@ pub const XevTcp = struct {
 
     /// Wrap an existing file descriptor (for testing via socketpair).
     /// Caller owns the fd lifecycle.
+    ///
+    /// POST: on poll-based backends (kqueue/epoll) the fd has O_NONBLOCK set.
+    /// Those backends run read/write synchronously inside
+    /// Completion.perform(); a blocking fd parks the whole loop the moment a
+    /// kernel buffer fills (TD-120). xev.TCP.init() creates sockets with
+    /// SOCK.NONBLOCK, so wrapped fds must match. io_uring transfers
+    /// in-kernel and is exempt, mirroring the .adding switch below.
     pub fn initFd(fd: std.posix.socket_t) XevTcp {
+        switch (xev.backend) {
+            .io_uring => {},
+            else => {
+                const flags: c_int = @intCast(std.c.fcntl(fd, std.c.F.GETFL, @as(c_int, 0)));
+                std.debug.assert(flags >= 0); // PRE: caller passed a valid fd
+                const nonblock: c_int = @intCast(@as(u32, @bitCast(std.posix.O{ .NONBLOCK = true })));
+                const rc = std.c.fcntl(fd, std.c.F.SETFL, @as(c_int, flags | nonblock));
+                std.debug.assert(rc >= 0); // POST: O_NONBLOCK is set
+            },
+        }
         return XevTcp{ .tcp = xev.TCP.initFd(fd) };
     }
 

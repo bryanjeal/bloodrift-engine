@@ -9,6 +9,31 @@ const XevTcp = @import("xev_tcp.zig").XevTcp;
 // Tests
 // ============================================================================
 
+test "xev_tcp: initFd forces O_NONBLOCK on wrapped fds" {
+    const builtin = @import("builtin");
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (xev.backend == .io_uring) return error.SkipZigTest; // not enforced on io_uring
+
+    var sv: [2]std.c.fd_t = undefined;
+    const rc = std.c.socketpair(std.c.AF.UNIX, std.c.SOCK.STREAM, 0, &sv);
+    if (rc != 0) return error.SkipZigTest;
+    defer _ = std.c.close(sv[0]);
+    defer _ = std.c.close(sv[1]);
+
+    const nonblock: c_int = @intCast(@as(u32, @bitCast(std.posix.O{ .NONBLOCK = true })));
+
+    // Precondition: socketpair fds are blocking by default.
+    const before = std.c.fcntl(sv[0], std.c.F.GETFL, @as(c_int, 0));
+    try std.testing.expect(before >= 0);
+    try std.testing.expectEqual(@as(c_int, 0), before & nonblock);
+
+    const t = XevTcp.initFd(sv[0]);
+
+    // Postcondition: wrapped fd is non-blocking.
+    const after = std.c.fcntl(t.tcp.fd, std.c.F.GETFL, @as(c_int, 0));
+    try std.testing.expect(after & nonblock != 0);
+}
+
 test "xev_tcp: read and write use separate completions" {
     const builtin = @import("builtin");
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
@@ -190,7 +215,6 @@ test "xev_tcp: bidirectionhal read and write do not interfere" {
     try std.testing.expectEqualSlices(u8, msg_ba, a_buf[0..a.read_result]);
     try std.testing.expectEqualSlices(u8, msg_ab, b_buf[0..b.read_result]);
 }
-
 test "xev_tcp: real TCP sequential write then read (repro handshake hang)" {
     const builtin = @import("builtin");
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
@@ -212,9 +236,17 @@ test "xev_tcp: real TCP sequential write then read (repro handshake hang)" {
     try server.bind(address);
     try server.listen(1);
 
-    // Retrieve the actual port assigned by the OS.
-    var sock_len: std.posix.socklen_t = @sizeOf(std.c.sockaddr);
-    _ = std.c.getsockname(server.tcp.fd, @ptrCast(&address.ip4), &sock_len);
+    // Retrieve the actual port assigned by the OS. getsockname must write a
+    // full sockaddr (16 bytes); writing into the 6-byte Ip4Address payload
+    // overflows it and corrupts the address passed to connect(), which then
+    // targets a random IP and wedges the loop on poll backends (TD-120).
+    var sa: std.c.sockaddr.in = undefined;
+    var sock_len: std.posix.socklen_t = @sizeOf(std.c.sockaddr.in);
+    try std.testing.expectEqual(@as(c_int, 0), std.c.getsockname(server.tcp.fd, @ptrCast(&sa), &sock_len));
+    address = .{ .ip4 = .{
+        .bytes = @bitCast(sa.addr),
+        .port = std.mem.bigToNative(u16, sa.port),
+    } };
 
     var client = try XevTcp.init(address);
     defer {
