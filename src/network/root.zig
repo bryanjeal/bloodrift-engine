@@ -14,4 +14,5 @@ test {
     _ = tcp;
     _ = framing;
     _ = xev_tcp;
+    _ = @import("xev_tcp_test.zig");
 }
