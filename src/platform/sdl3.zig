@@ -94,20 +94,13 @@ pub const Timer = struct {
 // InputSnapshot
 // ============================================================================
 
-/// One frame of raw keyboard state.
+/// One frame of raw platform state.
 ///
-/// Movement maps to WASD; quit on Escape or window close.
-/// Game-specific key mappings (skills, UI toggles) use isKeyHeld().
+/// Quit on Escape or window close. All key mappings (movement, skills, UI
+/// toggles) live on the consumer side via isKeyHeld().
 pub const InputSnapshot = struct {
-    move_up: bool = false,
-    move_down: bool = false,
-    move_left: bool = false,
-    move_right: bool = false,
     quit: bool = false,
     window_resized: bool = false,
-
-    // Game-specific key mappings (skills, UI toggles) should use isKeyHeld()
-    // rather than adding fields here.
 
     /// All fields false.
     pub const zero: InputSnapshot = .{};
@@ -159,11 +152,6 @@ pub fn pollEvents(snap: *InputSnapshot, event_hook: ?*const fn (*const anyopaque
     //   c=6, i=12, p=19
     std.debug.assert(kb.len > 41);
 
-    snap.move_up = kb[@intFromEnum(sdl.Scancode.w)];
-    snap.move_down = kb[@intFromEnum(sdl.Scancode.s)];
-    snap.move_left = kb[@intFromEnum(sdl.Scancode.a)];
-    snap.move_right = kb[@intFromEnum(sdl.Scancode.d)];
-
     if (kb[@intFromEnum(sdl.Scancode.escape)]) {
         snap.quit = true;
     }
@@ -177,11 +165,8 @@ pub fn pollEvents(snap: *InputSnapshot, event_hook: ?*const fn (*const anyopaque
 
 test "InputSnapshot: zero has all fields false" {
     const snap = InputSnapshot.zero;
-    try std.testing.expect(!snap.move_up);
-    try std.testing.expect(!snap.move_down);
-    try std.testing.expect(!snap.move_left);
-    try std.testing.expect(!snap.move_right);
     try std.testing.expect(!snap.quit);
+    try std.testing.expect(!snap.window_resized);
 }
 
 test "Timer: elapsed increases monotonically" {
