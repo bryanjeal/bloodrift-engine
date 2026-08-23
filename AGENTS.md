@@ -27,7 +27,7 @@ engine/
 │   │   └── vulkan/           # Vulkan-specific pipeline, shaders, swapchain
 │   ├── platform/             # SDL3 windowing, input, Vulkan surface
 │   ├── network/              # Transport abstraction + TCP
-│   ├── physics/              # Jolt Physics integration
+│   ├── physics/              # reserved (simulation physics de-scoped post-MVP; Blood Rift Feature 25 Exit B)
 │   └── audio/                # FMOD integration
 ├── build.zig                 # Engine build (linkSdl3, linkVulkan, shader compilation)
 └── build.zig.zon

@@ -11,10 +11,10 @@ This document tracks known technical debt, limitations, and future work for the 
 - **Notes**: Plan to use FMOD via C bindings. Need to design audio component system and event bus.
 
 ### Physics
-- **Status**: No physics integration
-- **Impact**: Collision detection and response must be implemented in game code
-- **Priority**: High (M22+)
-- **Notes**: Jolt Physics is the preferred library. Need to design physics component and collision world.
+- **Status**: No physics integration; the `physics/` module stays reserved
+- **Impact**: Collision detection and response live in game code (custom Fp16 2D collision)
+- **Priority**: N/A (decision recorded)
+- **Notes**: Blood Rift Feature 25 exited via Exit B (2026-08-23): simulation physics de-scoped to post-MVP. This is a game-level decision; the engine physics module is reserved. Library choice reopens only if a future feature needs rigid-body dynamics.
 
 ## Performance & Scalability
 
@@ -105,7 +105,7 @@ This document tracks known technical debt, limitations, and future work for the 
 
 ### Planned Features
 - Audio system (M21)
-- Physics integration (M22)
+- Physics integration (de-scoped post-MVP by Blood Rift Feature 25 Exit B; module reserved)
 - WebGPU backend (M25+)
 - OpenGL backend (M25+)
 - Multi-threaded ECS (M23+)
