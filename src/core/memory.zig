@@ -64,11 +64,20 @@ pub const ArenaAllocator = struct {
     fn alloc(ctx: *anyopaque, n: usize, alignment: std.mem.Alignment, _: usize) ?[*]u8 {
         const self: *ArenaAllocator = @ptrCast(@alignCast(ctx));
         const align_val = alignment.toByteUnits();
-        // Align the cursor up to the required alignment.
-        const aligned_cursor = std.mem.alignForward(usize, self.cursor, align_val);
+        std.debug.assert(n > 0);
+        // Align the ABSOLUTE address, not the cursor offset. buffer is a []u8
+        // (align 1), so its base address carries no alignment guarantee: an
+        // offset-only computation returns pointers that violate the Allocator
+        // contract whenever the base is not already aligned, which std turns
+        // into an @alignCast panic on the first over-aligned request.
+        const base = @intFromPtr(self.buffer.ptr);
+        const aligned_addr = std.mem.alignForward(usize, base + self.cursor, align_val);
+        std.debug.assert(aligned_addr % align_val == 0);
+        const aligned_cursor = aligned_addr - base;
         const new_cursor = aligned_cursor + n;
         if (new_cursor > self.buffer.len) return null;
         self.cursor = new_cursor;
+        std.debug.assert(self.cursor <= self.buffer.len);
         return self.buffer[aligned_cursor..new_cursor].ptr;
     }
 
@@ -204,8 +213,12 @@ test "ArenaAllocator: basic alloc and reset" {
 }
 
 test "ArenaAllocator: alignment is honoured" {
-    var backing: [1024]u8 = undefined;
-    var arena = ArenaAllocator.init(&backing);
+    // A []u8 base carries no alignment guarantee. Force a base that is not
+    // 8-aligned: offset-only alignment returned misaligned pointers here, which
+    // crashed under x86_64-linux while passing on macOS purely by stack-layout
+    // luck (the unforced [1024]u8 happened to be aligned there).
+    var raw: [1024]u8 align(64) = undefined;
+    var arena = ArenaAllocator.init(raw[1..]);
     const alloc = arena.allocator();
 
     _ = try alloc.create(u8); // misalign cursor intentionally
