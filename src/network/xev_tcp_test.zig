@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const xev = @import("xev");
+const dxev = xev.Dynamic;
 const XevTcp = @import("xev_tcp.zig").XevTcp;
 
 // ============================================================================
@@ -12,7 +13,6 @@ const XevTcp = @import("xev_tcp.zig").XevTcp;
 test "xev_tcp: initFd forces O_NONBLOCK on wrapped fds" {
     const builtin = @import("builtin");
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
-    if (xev.backend == .io_uring) return error.SkipZigTest; // not enforced on io_uring
 
     var sv: [2]std.c.fd_t = undefined;
     const rc = std.c.socketpair(std.c.AF.UNIX, std.c.SOCK.STREAM, 0, &sv);
@@ -27,11 +27,15 @@ test "xev_tcp: initFd forces O_NONBLOCK on wrapped fds" {
     try std.testing.expect(before >= 0);
     try std.testing.expectEqual(@as(c_int, 0), before & nonblock);
 
+    // The wrapper sets O_NONBLOCK on poll backends (kqueue/epoll) but
+    // leaves it alone on io_uring (in-kernel transfers tolerate blocking fds).
+    // Assert only for the poll backends.
+    const enforces = if (dxev.backend == .io_uring) false else true;
     const t = XevTcp.initFd(sv[0]);
 
     // Postcondition: wrapped fd is non-blocking.
-    const after = std.c.fcntl(t.tcp.fd, std.c.F.GETFL, @as(c_int, 0));
-    try std.testing.expect(after & nonblock != 0);
+    const after = std.c.fcntl(t.fd(), std.c.F.GETFL, @as(c_int, 0));
+    if (enforces) try std.testing.expect(after & nonblock != 0);
 }
 
 test "xev_tcp: read and write use separate completions" {
@@ -47,7 +51,7 @@ test "xev_tcp: read and write use separate completions" {
     var tpool = xev.ThreadPool.init(.{});
     defer tpool.deinit();
     defer tpool.shutdown();
-    var loop = try xev.Loop.init(.{ .thread_pool = &tpool });
+    var loop = try dxev.Loop.init(.{ .thread_pool = &tpool });
     defer loop.deinit();
 
     var client = XevTcp.initFd(sv[0]);
@@ -88,7 +92,7 @@ test "xev_tcp: read_pending prevents completion overwrite" {
     var tpool = xev.ThreadPool.init(.{});
     defer tpool.deinit();
     defer tpool.shutdown();
-    var loop = try xev.Loop.init(.{ .thread_pool = &tpool });
+    var loop = try dxev.Loop.init(.{ .thread_pool = &tpool });
     defer loop.deinit();
 
     var server = XevTcp.initFd(sv[1]);
@@ -132,7 +136,7 @@ test "xev_tcp: write_pending prevents completion overwrite" {
     var tpool = xev.ThreadPool.init(.{});
     defer tpool.deinit();
     defer tpool.shutdown();
-    var loop = try xev.Loop.init(.{ .thread_pool = &tpool });
+    var loop = try dxev.Loop.init(.{ .thread_pool = &tpool });
     defer loop.deinit();
 
     var client = XevTcp.initFd(sv[0]);
@@ -174,7 +178,7 @@ test "xev_tcp: bidirectionhal read and write do not interfere" {
     var tpool = xev.ThreadPool.init(.{});
     defer tpool.deinit();
     defer tpool.shutdown();
-    var loop = try xev.Loop.init(.{ .thread_pool = &tpool });
+    var loop = try dxev.Loop.init(.{ .thread_pool = &tpool });
     defer loop.deinit();
 
     var a = XevTcp.initFd(sv[0]);
@@ -223,7 +227,7 @@ test "xev_tcp: real TCP sequential write then read (repro handshake hang)" {
     var tpool = xev.ThreadPool.init(.{});
     defer tpool.deinit();
     defer tpool.shutdown();
-    var loop = try xev.Loop.init(.{ .thread_pool = &tpool });
+    var loop = try dxev.Loop.init(.{ .thread_pool = &tpool });
     defer loop.deinit();
 
     // Use port 0 for OS-assigned random port (Zig #14907).
@@ -242,7 +246,7 @@ test "xev_tcp: real TCP sequential write then read (repro handshake hang)" {
     // targets a random IP and wedges the loop on poll backends (TD-120).
     var sa: std.c.sockaddr.in = undefined;
     var sock_len: std.posix.socklen_t = @sizeOf(std.c.sockaddr.in);
-    try std.testing.expectEqual(@as(c_int, 0), std.c.getsockname(server.tcp.fd, @ptrCast(&sa), &sock_len));
+    try std.testing.expectEqual(@as(c_int, 0), std.c.getsockname(server.fd(), @ptrCast(&sa), &sock_len));
     address = .{ .ip4 = .{
         .bytes = @bitCast(sa.addr),
         .port = std.mem.bigToNative(u16, sa.port),
@@ -255,17 +259,17 @@ test "xev_tcp: real TCP sequential write then read (repro handshake hang)" {
     }
 
     // ---- Phase 1: Accept and connect (simultaneous, like libxev test) ----
-    var accepted: ?xev.TCP = null;
+    var accepted: ?dxev.TCP = null;
     server.accept(&loop, &accepted);
 
     var connected: bool = false;
     client.tcp.connect(&loop, &client.completion, address, bool, &connected, (struct {
         fn cb(
             ud: ?*bool,
-            _: *xev.Loop,
-            _: *xev.Completion,
-            _: xev.TCP,
-            r: xev.ConnectError!void,
+            _: *dxev.Loop,
+            _: *dxev.Completion,
+            _: dxev.TCP,
+            r: dxev.ConnectError!void,
         ) xev.CallbackAction {
             ud.?.* = if (r) |_| true else |_| false;
             return .disarm;
@@ -313,7 +317,7 @@ test "xev_tcp: same-connection read and write use separate completions" {
     var tpool = xev.ThreadPool.init(.{});
     defer tpool.deinit();
     defer tpool.shutdown();
-    var loop = try xev.Loop.init(.{ .thread_pool = &tpool });
+    var loop = try dxev.Loop.init(.{ .thread_pool = &tpool });
     defer loop.deinit();
 
     var a = XevTcp.initFd(sv[0]);

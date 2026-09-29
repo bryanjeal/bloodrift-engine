@@ -1,8 +1,15 @@
 // Async TCP wrapper around libxev (TD-002).
 //
-// XevTcp wraps xev.TCP with convenience methods for accept/read/write/close.
-// The xev.Loop and xev.ThreadPool are owned externally (by the caller).
-// XevTcp is lightweight: just a TCP handle and completion scratch space.
+// XevTcp wraps libxev's dynamic TCP (xev.Dynamic.TCP) with convenience
+// methods for accept/read/write/close. The xev.Loop and xev.ThreadPool are
+// owned externally (by the caller). XevTcp is lightweight: just a TCP handle
+// and completion scratch space.
+//
+// The dynamic API selects the backend at runtime via dxev.detect(): Linux
+// prefers io_uring and falls back to epoll when the io_uring_setup syscall is
+// blocked (seccomp in CI containers). On macOS the dynamic API collapses to
+// static kqueue (single candidate), so detect() does not exist there and
+// ensureBackend() is a comptime no-op.
 //
 // Each XevTcp has SEPARATE completions for read and write so that a
 // pending .no_wait operation in one direction never overwrites the other.
@@ -14,20 +21,21 @@
 
 const std = @import("std");
 const xev = @import("xev");
+const dxev = xev.Dynamic;
 
 pub const XevTcp = struct {
-    tcp: xev.TCP,
+    tcp: dxev.TCP,
 
     // Shared completion for accept, connect, and close.
     // These are mutually exclusive: connect happens before any read/write,
     // accept happens on the listener (separate XevTcp), close happens after
     // all read/write stop. They share a completion to avoid field bloat.
-    completion: xev.Completion = .{},
+    completion: dxev.Completion = .{},
 
     // Separate completions for read and write so .no_wait operations in
     // opposite directions never corrupt each other.
-    read_completion: xev.Completion = .{},
-    write_completion: xev.Completion = .{},
+    read_completion: dxev.Completion = .{},
+    write_completion: dxev.Completion = .{},
 
     // Guards: a second read()/write() before the first completes is a no-op.
     // The callback clears the flag when the operation finishes.
@@ -44,9 +52,17 @@ pub const XevTcp = struct {
 
     // ---- all fields above, all declarations below ----
 
+    /// Set the dynamic backend global once before any TCP/loop use.
+    /// Comptime no-op when the dynamic API collapsed to a single static
+    /// backend (macOS: kqueue), where the backend is already fixed.
+    fn ensureBackend() void {
+        if (comptime dxev.dynamic) dxev.detect() catch {};
+    }
+
     /// Create a new TCP, not yet connected or bound.
     pub fn init(addr: std.Io.net.IpAddress) !XevTcp {
-        return XevTcp{ .tcp = try xev.TCP.init(addr) };
+        ensureBackend();
+        return XevTcp{ .tcp = try dxev.TCP.init(addr) };
     }
 
     /// Wrap an existing file descriptor (for testing via socketpair).
@@ -55,21 +71,32 @@ pub const XevTcp = struct {
     /// POST: on poll-based backends (kqueue/epoll) the fd has O_NONBLOCK set.
     /// Those backends run read/write synchronously inside
     /// Completion.perform(); a blocking fd parks the whole loop the moment a
-    /// kernel buffer fills (TD-120). xev.TCP.init() creates sockets with
+    /// kernel buffer fills (TD-120). dxev.TCP.init() creates sockets with
     /// SOCK.NONBLOCK, so wrapped fds must match. io_uring transfers
-    /// in-kernel and is exempt, mirroring the .adding switch below.
-    pub fn initFd(fd: std.posix.socket_t) XevTcp {
-        switch (xev.backend) {
-            .io_uring => {},
-            else => {
-                const flags: c_int = @intCast(std.c.fcntl(fd, std.c.F.GETFL, @as(c_int, 0)));
-                std.debug.assert(flags >= 0); // PRE: caller passed a valid fd
-                const nonblock: c_int = @intCast(@as(u32, @bitCast(std.posix.O{ .NONBLOCK = true })));
-                const rc = std.c.fcntl(fd, std.c.F.SETFL, @as(c_int, flags | nonblock));
-                std.debug.assert(rc >= 0); // POST: O_NONBLOCK is set
-            },
-        }
-        return XevTcp{ .tcp = xev.TCP.initFd(fd) };
+    /// in-kernel and is exempt.
+    pub fn initFd(fd_value: std.posix.socket_t) XevTcp {
+        ensureBackend();
+        // io_uring's in-kernel transfers tolerate a blocking fd; poll
+        // backends must never see one (TD-120). dxev.backend is a runtime
+        // global on Linux, so this is a plain (not comptime) branch that
+        // folds on the single-candidate macOS collapse.
+        if (dxev.backend != .io_uring) setNonBlock(fd_value);
+        return XevTcp{ .tcp = dxev.TCP.initFd(fd_value) };
+    }
+
+    fn setNonBlock(fd_value: std.posix.socket_t) void {
+        const flags: c_int = @intCast(std.c.fcntl(fd_value, std.c.F.GETFL, @as(c_int, 0)));
+        std.debug.assert(flags >= 0); // PRE: caller passed a valid fd
+        const nonblock: c_int = @intCast(@as(u32, @bitCast(std.posix.O{ .NONBLOCK = true })));
+        const rc = std.c.fcntl(fd_value, std.c.F.SETFL, @as(c_int, flags | nonblock));
+        std.debug.assert(rc >= 0); // POST: O_NONBLOCK is set
+    }
+
+    /// The underlying file descriptor. The static TCP exposes fd as a public
+    /// field; the dynamic TCP hides it behind an accessor.
+    pub fn fd(self: *const XevTcp) std.posix.socket_t {
+        if (comptime dxev.dynamic) return self.tcp.fd();
+        return self.tcp.fd;
     }
 
     /// Bind to an address (server-side).
@@ -83,22 +110,22 @@ pub const XevTcp = struct {
     }
 
     /// Accept a connection. The callback receives the accepted TCP on success
-    /// via r: xev.AcceptError!xev.TCP. conn_ptr is set to the accepted TCP
+    /// via r: dxev.AcceptError!dxev.TCP. conn_ptr is set to the accepted TCP
     /// and the callback disarms on success.
     pub fn accept(
         self: *XevTcp,
-        loop: *xev.Loop,
-        conn_ptr: *?xev.TCP,
+        loop: *dxev.Loop,
+        conn_ptr: *?dxev.TCP,
     ) void {
-        self.tcp.accept(loop, &self.completion, ?xev.TCP, conn_ptr, acceptCallback);
+        self.tcp.accept(loop, &self.completion, ?dxev.TCP, conn_ptr, acceptCallback);
     }
 
     fn acceptCallback(
-        ud: ?*?xev.TCP,
-        _: *xev.Loop,
-        _: *xev.Completion,
-        r: xev.AcceptError!xev.TCP,
-    ) xev.CallbackAction {
+        ud: ?*?dxev.TCP,
+        _: *dxev.Loop,
+        _: *dxev.Completion,
+        r: dxev.AcceptError!dxev.TCP,
+    ) dxev.CallbackAction {
         if (r) |conn| {
             ud.?.* = conn;
         } else |_| {
@@ -111,7 +138,7 @@ pub const XevTcp = struct {
     /// completes or fails. Returns error on connection failure.
     pub fn connect(
         self: *XevTcp,
-        loop: *xev.Loop,
+        loop: *dxev.Loop,
         addr: std.Io.net.IpAddress,
     ) !void {
         var connected: bool = false;
@@ -122,11 +149,11 @@ pub const XevTcp = struct {
 
     fn connectCallback(
         ud: ?*bool,
-        _: *xev.Loop,
-        _: *xev.Completion,
-        _: xev.TCP,
-        r: xev.ConnectError!void,
-    ) xev.CallbackAction {
+        _: *dxev.Loop,
+        _: *dxev.Completion,
+        _: dxev.TCP,
+        r: dxev.ConnectError!void,
+    ) dxev.CallbackAction {
         if (r) |_| {
             ud.?.* = true;
         } else |_| {
@@ -139,46 +166,38 @@ pub const XevTcp = struct {
     ///
     /// If a previous read is still pending, this is a no-op (the completion
     /// is armed; submitting again would corrupt it). The caller should check
-    /// `read_result` after loop.run() — it holds bytes read, or 0 on
+    /// `read_result` after loop.run() - it holds bytes read, or 0 on
     /// error/EOF/no-data-yet.
     ///
     /// Caller contract: read `read_result` (not a local variable) after
     /// pump(), because the callback writes to XevTcp's stable storage.
+    ///
+    /// No manual completion re-arm: dxev's shared stream layer resubmits the
+    /// completion in its .dead state and both poll backends' loop.add() arm
+    /// it. The old per-backend .adding pre-set was a static-API workaround,
+    /// redundant in the dynamic layer.
     pub fn read(
         self: *XevTcp,
-        loop: *xev.Loop,
+        loop: *dxev.Loop,
         buf: []u8,
     ) void {
         if (self.read_pending) return;
         self.read_pending = true;
         self.read_result = 0;
-        std.log.info("xev_tcp: read submitted (buf={} bytes)", .{buf.len});
-        // tcp.read() sets c.* = .{...} which defaults flags.state to .dead.
-        // stop_completion() does nothing for .dead non-timer ops (kqueue.zig:948).
-        // Set state back to .adding so submit() properly starts the completion.
         self.tcp.read(loop, &self.read_completion, .{ .slice = buf }, XevTcp, self, readCallback);
-        // io_uring's Completion.State is only { dead, active } (no .adding);
-        // its add() registers a .dead completion directly. kqueue/epoll need
-        // the .adding reset so submit() starts the completion instead of
-        // routing .dead through stop_completion().
-        switch (xev.backend) {
-            .io_uring => {},
-            else => self.read_completion.flags.state = .adding,
-        }
     }
 
     fn readCallback(
         ud: ?*XevTcp,
-        _: *xev.Loop,
-        _: *xev.Completion,
-        _: xev.TCP,
-        _: xev.ReadBuffer,
-        r: xev.ReadError!usize,
-    ) xev.CallbackAction {
+        _: *dxev.Loop,
+        _: *dxev.Completion,
+        _: dxev.TCP,
+        _: dxev.ReadBuffer,
+        r: dxev.ReadError!usize,
+    ) dxev.CallbackAction {
         const s = ud.?;
         s.read_result = r catch 0;
         s.read_pending = false;
-        std.log.info("xev_tcp: read completed (result={})", .{s.read_result});
         if (s.read_result == 0) s.eof = true;
         return .disarm;
     }
@@ -187,42 +206,33 @@ pub const XevTcp = struct {
     ///
     /// If a previous write is still pending, this is a no-op (the completion
     /// is armed; submitting again would corrupt it). The caller should check
-    /// `write_result` after loop.run() — it holds bytes written, or 0 on
+    /// `write_result` after loop.run() - it holds bytes written, or 0 on
     /// error/buffer-full.
     ///
     /// Caller contract: read `write_result` (not a local variable) after
     /// pump(), because the callback writes to XevTcp's stable storage.
     pub fn write(
         self: *XevTcp,
-        loop: *xev.Loop,
+        loop: *dxev.Loop,
         data: []const u8,
     ) void {
         if (self.write_pending) return;
         self.write_pending = true;
         self.write_result = 0;
-        std.log.info("xev_tcp: write submitted (data={} bytes)", .{data.len});
-        // xev.Completion defaults to state=.dead, which routes through
-        // stop_completion() instead of start(). Explicitly reset to .adding
-        // so the completion is properly registered with kqueue.
         self.tcp.write(loop, &self.write_completion, .{ .slice = data }, XevTcp, self, writeCallback);
-        switch (xev.backend) {
-            .io_uring => {},
-            else => self.write_completion.flags.state = .adding,
-        }
     }
 
     fn writeCallback(
         ud: ?*XevTcp,
-        _: *xev.Loop,
-        _: *xev.Completion,
-        _: xev.TCP,
-        _: xev.WriteBuffer,
-        r: xev.WriteError!usize,
-    ) xev.CallbackAction {
+        _: *dxev.Loop,
+        _: *dxev.Completion,
+        _: dxev.TCP,
+        _: dxev.WriteBuffer,
+        r: dxev.WriteError!usize,
+    ) dxev.CallbackAction {
         const s = ud.?;
         s.write_result = r catch 0;
         s.write_pending = false;
-        std.log.info("xev_tcp: write completed (result={})", .{s.write_result});
         return .disarm;
     }
 
@@ -230,18 +240,18 @@ pub const XevTcp = struct {
     /// Pump the loop afterward to process the completion.
     pub fn close(
         self: *XevTcp,
-        loop: *xev.Loop,
+        loop: *dxev.Loop,
     ) void {
         self.tcp.close(loop, &self.completion, void, null, closeCallback);
     }
 
     fn closeCallback(
         _: ?*void,
-        _: *xev.Loop,
-        _: *xev.Completion,
-        _: xev.TCP,
-        _: xev.CloseError!void,
-    ) xev.CallbackAction {
+        _: *dxev.Loop,
+        _: *dxev.Completion,
+        _: dxev.TCP,
+        _: dxev.CloseError!void,
+    ) dxev.CallbackAction {
         return .disarm;
     }
 
@@ -251,3 +261,7 @@ pub const XevTcp = struct {
         return self.eof;
     }
 };
+
+test {
+    _ = @import("xev_tcp_test.zig");
+}
