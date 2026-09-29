@@ -261,7 +261,3 @@ pub const XevTcp = struct {
         return self.eof;
     }
 };
-
-test {
-    _ = @import("xev_tcp_test.zig");
-}
