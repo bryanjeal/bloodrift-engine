@@ -200,8 +200,10 @@ pub fn PoolAllocator(comptime T: type) type {
 // ----------------------------------------------------------------------------
 
 test "ArenaAllocator: basic alloc and reset" {
-    var backing: [1024]u8 = undefined;
-    var arena = ArenaAllocator.init(&backing);
+    // Force a non-8-aligned base: a plain []u8 is often 8-aligned on a stack
+    // by layout luck, which would hide a realignment regression.
+    var raw: [1024]u8 align(64) = undefined;
+    var arena = ArenaAllocator.init(raw[1..]);
     const alloc = arena.allocator();
 
     const a = try alloc.create(u64);
@@ -238,8 +240,10 @@ test "ArenaAllocator: returns null when exhausted" {
 }
 
 test "ArenaAllocator: reset allows reuse" {
-    var backing: [64]u8 = undefined;
-    var arena = ArenaAllocator.init(&backing);
+    // Force a non-4-aligned base so the u32 alloc exercises realignment rather
+    // than passing by stack-layout luck.
+    var raw: [64]u8 align(64) = undefined;
+    var arena = ArenaAllocator.init(raw[1..]);
     const alloc = arena.allocator();
 
     const a = try alloc.create(u32);
@@ -315,8 +319,10 @@ test "ArenaAllocator: exactly fills buffer" {
 }
 
 test "ArenaAllocator: used and capacity invariant" {
-    var backing: [256]u8 = undefined;
-    var arena = ArenaAllocator.init(&backing);
+    // Force a non-8-aligned base: a plain []u8 is often 8-aligned on a stack
+    // by layout luck, which would hide a realignment regression.
+    var raw: [257]u8 align(64) = undefined;
+    var arena = ArenaAllocator.init(raw[1..]);
     const alloc = arena.allocator();
 
     try std.testing.expectEqual(@as(usize, 256), arena.capacity());
